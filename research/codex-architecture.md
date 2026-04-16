@@ -196,3 +196,26 @@ In Codex, the outer loop is triggered by a task or other external input, not by 
 One iteration is a full stateful pass: prepare turn/session state, assemble the prompt from fragments, sample the model, parse any tool calls, route them through the tool system, and update history and turn state before deciding whether to continue.
 
 The distinctive part is that Codex treats this as a task runner with recursion and follow-on work, not a single request-response exchange. That makes delegation, compaction, and pending-input draining part of the same execution model rather than separate side flows.
+
+```ts
+async function runCodexTask(task) {
+  session.spawnTask(task)
+
+  while (session.hasRunnableWork()) {
+    const turnState = runtime.prepareTurn(session)
+    const prompt = promptBuilder.assemble(turnState)
+    const response = await sampler.sample(prompt)
+
+    const toolCalls = parser.extractToolCalls(response)
+    await tools.orchestrate(toolCalls, turnState)
+
+    session.updateHistory(response, toolCalls)
+
+    if (runtime.needsCompactionOrDelegation(session)) {
+      await runtime.handleFollowOnWork(session)
+    }
+  }
+
+  return session.drainCompletedTask(task.id)
+}
+```

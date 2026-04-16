@@ -131,6 +131,27 @@ One iteration typically means: assemble current context, stream a model response
 
 What is distinctive here is how much of the loop is owned by one engine: context building, permission checks, tool orchestration, transcript persistence, and stop/continue decisions all sit inside the same runtime path. That makes the loop dense, but also very explicit about where control lives.
 
+```ts
+async function runClaudeInvocation(invocation) {
+  queryEngine.recordInvocation(invocation)
+
+  while (true) {
+    const context = queryEngine.buildContext()
+    const stream = queryEngine.query(context)
+    const response = await queryEngine.collect(stream)
+
+    queryEngine.persistEvents(response.events)
+
+    const approvedCalls = await queryEngine.checkPermissions(response.toolCalls)
+    await queryEngine.runTools(approvedCalls)
+
+    if (!queryEngine.shouldContinue(response)) {
+      return queryEngine.finalizeResult()
+    }
+  }
+}
+```
+
 ## Agent Loop Diagram
 
 ```text

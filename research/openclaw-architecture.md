@@ -239,3 +239,28 @@ Inbound Event / Trigger
 ## Agent Loop Semantics
 
 Conceptually, OpenClaw’s outer loop starts when any routed trigger lands on an agent session, not only when a human sends a chat message. One iteration resolves the current session environment, compiles the prompt from runtime and skill state, executes the embedded Pi-agent attempt, routes tool calls through OpenClaw’s platform tools, persists transcript updates, and decides whether the session should continue, compact, fail over, or stop. The main difference from the other harnesses is that the loop is embedded inside a larger assistant platform, so routing, delivery, and session identity are part of the harness semantics rather than outside infrastructure.
+
+```ts
+async function runOpenClawInvocation(trigger) {
+  const route = routing.resolveAgentRoute(trigger)
+
+  return lanes.inSession(route.sessionKey, async () => {
+    const runState = embeddedRunner.prepare(route, trigger)
+
+    while (true) {
+      const prompt = prompting.buildEmbeddedPrompt(runState)
+      const attempt = await piAgent.runAttempt(prompt, runState)
+
+      await platformTools.handle(attempt.toolCalls, runState)
+      await sessions.persistTranscript(route.sessionKey, attempt)
+      await memory.notifyTranscriptUpdate(route.sessionKey)
+
+      if (!embeddedRunner.shouldContinue(attempt, runState)) {
+        return delivery.emitResult(route, attempt)
+      }
+
+      runState = await embeddedRunner.advance(runState, attempt)
+    }
+  })
+}
+```

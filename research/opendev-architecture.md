@@ -210,3 +210,25 @@ User Input / Runtime Trigger
 ## Agent Loop Semantics
 
 Conceptually, the outer loop starts when a session receives new input or a follow-up condition requires another pass. One iteration builds the current prompt from session state, filters the active tool set, calls the model, routes any tool requests through approval and execution, persists updated state and checkpoints, then runs completion checks to decide whether another pass is needed. What makes OpenDev distinct is that this is not treated as a single opaque chat turn: the loop is explicit, sessioned, approval-aware, and split into composable stages so orchestration, tools, memory, and completion can evolve independently.
+
+```ts
+async function runOpenDevInvocation(invocation) {
+  agentRuntime.recordInput(invocation)
+
+  while (true) {
+    const loopState = agentRuntime.collectLoopState()
+    const prompt = promptComposer.compose(loopState)
+    const tools = toolRegistry.filterActiveSchemas(loopState)
+    const response = await reactLoop.callModel(prompt, tools)
+
+    const approvedCalls = await approvals.resolve(response.toolCalls)
+    await toolRegistry.execute(approvedCalls, loopState)
+    await history.persist(loopState)
+    await checkpoints.capture(loopState)
+
+    if (!reactLoop.shouldContinue(loopState, response)) {
+      return agentRuntime.buildResult()
+    }
+  }
+}
+```

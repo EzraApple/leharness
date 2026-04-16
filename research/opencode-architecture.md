@@ -130,6 +130,30 @@ OpenCode feels optimized for a stateful coding session where artifacts, diffs, a
 
 OpenCode’s outer loop is triggered by a session prompt or task-style invocation, not just a raw chat turn. One iteration typically compiles the current prompt state, streams the model response, records any tool calls or transcript parts, persists artifacts, and then decides whether to continue, compact, or stop. The distinctive part is that the loop is tightly coupled to durable session state: the transcript, snapshots, summaries, and nested task results are all first-class runtime artifacts rather than incidental byproducts.
 
+```ts
+async function runOpenCodeInvocation(invocation) {
+  const session = await SessionPrompt.prompt(invocation)
+
+  while (true) {
+    const state = session.loadState()
+    const prompt = session.resolvePrompt(state)
+    const response = await llm.stream(prompt)
+
+    await SessionProcessor.process(response, session)
+    await session.persistArtifactsAndSnapshots()
+
+    const nextAction = session.decideContinueCompactOrStop()
+    if (nextAction === "stop") {
+      return session.finish()
+    }
+
+    if (nextAction === "compact") {
+      await session.compact()
+    }
+  }
+}
+```
+
 ## Agent Loop Diagram
 
 ```text
