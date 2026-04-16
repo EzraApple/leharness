@@ -188,3 +188,11 @@ tool ok   tool result/error
 (loop to prompt /      finish task,
  sampling path)        drain pending input
 ```
+
+## Agent Loop Semantics
+
+In Codex, the outer loop is triggered by a task or other external input, not by the idea of a chat turn. A `Session::spawn_task` path seeds the work, and `run_turn` then keeps iterating until the task is resolved or no follow-up work remains.
+
+One iteration is a full stateful pass: prepare turn/session state, assemble the prompt from fragments, sample the model, parse any tool calls, route them through the tool system, and update history and turn state before deciding whether to continue.
+
+The distinctive part is that Codex treats this as a task runner with recursion and follow-on work, not a single request-response exchange. That makes delegation, compaction, and pending-input draining part of the same execution model rather than separate side flows.

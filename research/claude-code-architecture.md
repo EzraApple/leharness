@@ -123,6 +123,14 @@ The distinctive parts of Claude Code are:
 
 The cost of that sophistication is complexity. Compared with the others, Claude Code feels the most mature in safety and memory, and also the least minimal.
 
+## Agent Loop Semantics
+
+The outer loop is not really a “chat turn” in the narrow sense. It starts when `QueryEngine` receives a new message or equivalent invocation, then keeps running until the request is resolved, budgeted out, or blocked by approval or compaction boundaries.
+
+One iteration typically means: assemble current context, stream a model response, record events, run any approved tool calls, and decide whether another pass is needed. The loop is stateful across iterations, so later passes can inherit progress, memory, and side effects from earlier ones.
+
+What is distinctive here is how much of the loop is owned by one engine: context building, permission checks, tool orchestration, transcript persistence, and stop/continue decisions all sit inside the same runtime path. That makes the loop dense, but also very explicit about where control lives.
+
 ## Agent Loop Diagram
 
 ```text

@@ -126,6 +126,10 @@ The distinctive parts of OpenCode are:
 
 OpenCode feels optimized for a stateful coding session where artifacts, diffs, and resumability matter as much as the live model loop.
 
+## Agent Loop Semantics
+
+OpenCode’s outer loop is triggered by a session prompt or task-style invocation, not just a raw chat turn. One iteration typically compiles the current prompt state, streams the model response, records any tool calls or transcript parts, persists artifacts, and then decides whether to continue, compact, or stop. The distinctive part is that the loop is tightly coupled to durable session state: the transcript, snapshots, summaries, and nested task results are all first-class runtime artifacts rather than incidental byproducts.
+
 ## Agent Loop Diagram
 
 ```text
