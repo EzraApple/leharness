@@ -143,7 +143,7 @@ The shared takeaway is that harnesses age badly if capability is hard-coded. A u
 
 ### 2.1 Codex
 
-Codex is strongest where architectural separation matters. Its standout traits are:
+Codex stands out where architectural separation matters. Its standout traits are:
 
 - explicit split between session state and turn state
 - clear layering of tool routing, registry, orchestration, and sandbox policy
@@ -154,9 +154,9 @@ What is important about that uniqueness is not the language or stack. It is the 
 
 ### 2.2 Claude Code
 
-Claude Code is strongest where safety, memory, and operational maturity matter. Its standout traits are:
+Claude Code stands out where safety, memory, and operational maturity matter. Its standout traits are:
 
-- the deepest layered approval and sandbox model in the set
+- a deeply layered approval and sandbox model
 - strong prompt cache-boundary awareness
 - file-backed memory plus session-memory extraction
 - sidechain-style delegated agents with cleanup and transcript persistence
@@ -165,7 +165,7 @@ What is important about that uniqueness is how much work it puts into operationa
 
 ### 2.3 OpenCode
 
-OpenCode is strongest where durable coding-session state matters. Its standout traits are:
+OpenCode stands out where durable coding-session state matters. Its standout traits are:
 
 - typed durable message parts rather than a thin transcript
 - git-backed snapshots and revert-aware session state
@@ -177,9 +177,9 @@ What is important about that uniqueness is its emphasis on coding work as a stre
 
 ### 2.4 OpenDev
 
-OpenDev is strongest where modular runtime design and multi-agent execution matter. Its standout traits are:
+OpenDev stands out where modular runtime design and multi-agent execution matter. Its standout traits are:
 
-- the clearest subsystem decomposition in the comparison
+- very explicit subsystem decomposition
 - prompt sections with explicit caching policy
 - deferred tool exposure
 - background-capable isolated subagents

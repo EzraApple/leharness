@@ -6,7 +6,7 @@ This note focuses on the leaked CLI runtime under `claude-code/src`, especially 
 
 ## High-Level Shape
 
-Claude Code is the most monolithic codebase in this set, but its harness spine is still identifiable:
+Claude Code is a dense, product-heavy codebase, but its harness spine is still identifiable:
 
 - CLI/bootstrap in `entrypoints/cli.tsx`, `main.tsx`, and `replLauncher.tsx`
 - conversation execution in `QueryEngine.ts`
@@ -57,7 +57,7 @@ The important pattern is layering:
 - interactive approval behavior
 - OS-level sandbox settings
 
-This is the most elaborate approval and sandbox stack in the comparison set.
+This is a heavily layered approval and sandbox stack.
 
 ## State and Memory
 
@@ -67,6 +67,7 @@ Claude Code has both regular state and extra memory machinery:
 - `context.ts` adds repository state, date, and memory context into the turn prompt
 - `memdir.ts` treats `MEMORY.md` plus topic files as a file-backed memory system
 - `sessionMemory.ts` runs a background extraction loop to derive session memory using a subagent path
+- `services/teamMemorySync/*` adds a separate team-memory sync path with its own prompts and watchers
 
 That combination matters. Claude Code does not stop at transcript history. It actively maintains separate persistent memory structures and background extraction behavior.
 
@@ -75,7 +76,7 @@ That combination matters. Claude Code does not stop at transcript history. It ac
 Prompt construction is careful and cache-aware:
 
 - `constants/prompts.ts` defines the static versus dynamic prompt boundary
-- `getSystemPrompt()` assembles named prompt sections such as memory, env info, MCP guidance, output style, summarization rules, and token controls
+- `getSystemPrompt()` and `queryContext.ts` assemble named prompt sections such as memory, env info, MCP guidance, output style, summarization rules, and token controls
 - `QueryEngine.submitMessage()` can further append custom system text and extra prompt content
 
 This gives Claude Code a strong prompt-governance layer. Prompt construction is treated as a major subsystem rather than a helper function.
@@ -116,12 +117,12 @@ Claude Code appears to value prompt inspection and issue reproduction as core de
 
 The distinctive parts of Claude Code are:
 
-- the strongest layered safety model in the set
+- a deeply layered safety model
 - a very developed memory architecture, including file memory and background session memory extraction
 - sidechain-style delegated agents with transcript persistence
 - strong cache-stability awareness in prompt assembly and forking behavior
 
-The cost of that sophistication is complexity. Compared with the others, Claude Code feels the most mature in safety and memory, and also the least minimal.
+The cost of that sophistication is complexity. Claude Code feels especially built around long sessions, risky tool use, and operational control, and it is not especially minimal.
 
 ## Agent Loop Semantics
 

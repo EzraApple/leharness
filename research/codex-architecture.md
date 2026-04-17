@@ -6,7 +6,7 @@ This note focuses on the Rust harness core under `codex/codex-rs/core`, not the 
 
 ## High-Level Shape
 
-Codex is organized more like a composable execution kernel than a single monolithic chat loop. The main hub is `core/src/lib.rs`, which fans out into:
+Codex is organized more like a composable execution kernel than a single monolithic chat loop. `core/src/lib.rs` is the module root, while the actual task and turn lifecycle runs through `tasks/mod.rs` and `codex.rs`. The core fans out into:
 
 - session and turn state
 - prompt assembly and instruction fragments
@@ -60,12 +60,12 @@ Codex splits long-lived and turn-local state cleanly:
 - `state/service.rs` carries the operational dependency bag used by a running session.
 - `context_manager/history.rs` holds conversation history.
 
-Memory is not just transcript storage:
+Memory goes beyond transcript storage at startup and trace-processing time:
 
-- `memories/` implements a multi-phase memory pipeline.
-- `memory_trace.rs` converts traces into summarized memories.
+- `memories/` implements startup extraction and consolidation.
+- `memory_trace.rs` converts traces into summarized memory artifacts.
 
-This makes Codex closer to an agent runtime with memory services than a simple terminal chatbot.
+This makes Codex closer to an agent runtime with explicit memory-processing paths than a simple terminal chatbot.
 
 ## Prompt and Instruction Layering
 

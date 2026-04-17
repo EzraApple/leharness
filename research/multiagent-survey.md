@@ -38,8 +38,8 @@ Codex is closer to a task runner with delegated subprocesses than a true multi-a
 
 What it does:
 
-- `Session::spawn_task` seeds work as a task, not a chat turn
-- `codex_delegate.rs` spawns subordinate Codex runs with inherited services and forwarded events
+- Codex exposes delegated thread/agent lifecycle APIs such as `spawnAgent`, `resumeAgent`, `wait`, and `closeAgent`
+- delegated runs can be treated as task-shaped work rather than ordinary chat turns
 - delegated runs can receive initial history and parent context
 - subagent events are bridged back to the parent via async channels
 - approvals remain parent-controlled in the interactive subagent path
@@ -81,7 +81,7 @@ async function runCodexTask(task) {
 
 ## Claude Code
 
-Claude Code has the most developed delegated-agent story in the set, but it is still mostly a sidechain model rather than a symmetric multi-agent runtime.
+Claude Code has a very developed delegated-agent story, but it is still mostly a sidechain model rather than a symmetric multi-agent runtime.
 
 What it does:
 
@@ -128,7 +128,7 @@ async function runClaudeChild(parent, request) {
 
 ## OpenCode
 
-OpenCode is the clearest example of a strong single-session harness that supports child tasks well, but does not try very hard to be a general multi-agent system.
+OpenCode is a strong single-session harness that supports child tasks well, but does not try very hard to be a general multi-agent system.
 
 What it does:
 
@@ -224,7 +224,7 @@ async function runOpenDevLoop(invocation) {
 
 ## OpenClaw
 
-OpenClaw is the most platform-oriented system here. It has real subagent behavior, but the surrounding runtime is broader than a harness kernel.
+OpenClaw is the most platform-oriented system in this survey. It has real subagent behavior, but the surrounding runtime is broader than a harness kernel.
 
 What it does:
 
@@ -277,13 +277,13 @@ The useful split for `leharness` is:
 - `subagent` for isolated child work with a parent-owned join
 - `multi-agent` for cases where several active agents coordinate as peers or concurrent workers
 
-The surveyed harnesses suggest the following hierarchy:
+The surveyed harnesses suggest the following reference split:
 
-- `OpenDev` is the strongest multi-agent/runtime reference
-- `OpenClaw` is the strongest platform-and-routing reference
-- `Codex` is the strongest task/delegation reference
-- `Claude Code` is the strongest isolated sidechain and background-memory reference
-- `OpenCode` is the strongest durable nested-session reference
+- `OpenDev` is the most direct reference here for a multi-agent/runtime-centered design
+- `OpenClaw` is the most direct reference for platform-and-routing concerns
+- `Codex` is a strong reference for task/delegation lifecycles
+- `Claude Code` is a strong reference for isolated sidechains and background-memory behavior
+- `OpenCode` is a strong reference for durable nested-session design
 
 Adopt:
 
@@ -319,4 +319,3 @@ OpenCode   -> durable child sessions and summarized task handoff
 OpenDev    -> explicit multi-agent runtime with background-capable subagents
 OpenClaw   -> routed assistant platform with child sessions and gateway join
 ```
-

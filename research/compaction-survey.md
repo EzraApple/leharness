@@ -21,27 +21,24 @@ resume with a smaller model-visible state
 
 ## Codex
 
-Codex treats compaction as a first-class turn shape, not a side effect. The main entry points are `run_inline_auto_compact_task()` for local compaction and `run_inline_remote_auto_compact_task()` for the remote Responses-based path. Auto compaction is driven by total token usage versus the model's configured limit; manual `/compact` runs as its own compact turn; and model downshifts can trigger pre-turn compaction before the next normal turn starts.
+Codex treats compaction as an explicit runtime path, not a side effect. The local repo clearly shows both manual compaction endpoints and automatic compaction paths. Auto compaction is driven by token pressure relative to model limits, and manual `/compact` runs as its own compact action.
 
 ```ts
 if (totalUsageTokens >= autoCompactLimit) {
   await runAutoCompact({
     trigger: "auto",
-    phase: "mid-turn" | "pre-turn",
-    initialContextInjection,
   })
 }
 ```
 
-What gets compacted depends on the path, but the pattern is consistent: Codex compacted history, then reinserted a compacted replacement history plus a `ContextCompactionItem`. In the remote path, it trims function-call history to fit, preserves ghost snapshots for `/undo`, and uses a `CompactedItem` with `replacement_history`. In the local path, it retries by stripping the oldest history item when compaction itself hits a context-window error, which is the main failure escape hatch I found.
+What gets compacted depends on the path, but the broad pattern is consistent: Codex replaces active history with a smaller compacted form and retries when the compacted payload is still too large.
 
-The interesting architectural choice is that Codex distinguishes pre-turn and mid-turn compaction with different initial-context injection rules. Mid-turn compaction reinjects initial context above the last real user message; pre-turn and manual compaction do not. That keeps the model-facing history shape aligned with how the model expects to continue.
+The important architectural point is that compaction is part of the task/runtime model rather than an invisible transcript mutation.
 
 Good ideas to take:
 
-- explicit compact turns with analytics and phase tracking
+- explicit compact turns and dedicated compaction endpoints
 - separate local and remote compaction implementations behind one logical action
-- retention of undoable snapshots and model-visible replacement history
 - retry-on-overflow behavior that removes the oldest material first
 
 Shortcomings or non-essential parts:
@@ -52,7 +49,7 @@ Shortcomings or non-essential parts:
 
 ## Claude Code
 
-Claude Code has the most layered compaction story in the set. It combines proactive auto-compaction, manual `/compact`, session-memory compaction, a microcompact pass, and a reactive compaction fallback when the request itself is too large. The trigger is usually token pressure relative to an effective context window, but the code also suppresses auto-compaction in special modes like session-memory or context-collapse flows.
+Claude Code has a layered compaction story. It combines proactive auto-compaction, manual `/compact`, session-memory compaction, a microcompact pass, and a reactive compaction fallback when the request itself is too large. The trigger is usually token pressure relative to an effective context window, but the code also suppresses auto-compaction in special modes like session-memory or context-collapse flows.
 
 ```ts
 if (await shouldAutoCompact(messages, model, querySource, snipTokensFreed)) {
@@ -66,14 +63,9 @@ if (await shouldAutoCompact(messages, model, querySource, snipTokensFreed)) {
 
 The compaction logic is not one thing. `trySessionMemoryCompaction()` is a targeted path that pulls from session memory. `microcompactMessages()` prunes and summarizes tool outputs, collapses compactable tool uses, and preserves cache-safe edits. `compactConversation()` does the heavier summary-driven compaction. If the model returns prompt-too-long, the reactive path can retry with head-truncation or smaller chunks. After any successful compaction, `runPostCompactCleanup()` clears caches and module state but deliberately preserves invoked skill content.
 
-Representation is explicit. Claude Code uses `compact_boundary` system messages with `compactMetadata`, including preserved segment identifiers, and its session storage layer can reconstruct both compact boundaries and snip boundaries when loading. It also keeps commit-like context-collapse metadata in session storage, which makes the compaction lineage more observable than just a single summary blob.
+Representation is explicit. Claude Code uses `compact_boundary` system messages with `compactMetadata`, including preserved segment identifiers, and it keeps post-compaction metadata visible enough that the compaction lineage is more observable than just a single summary blob.
 
-Large outputs are preserved in multiple ways:
-
-- full tool output can be truncated to disk with a pointer path
-- file history and snapshot state survive compaction
-- memory files and session transcripts are reloaded separately
-- compact boundaries and snip boundaries provide recovery anchors
+Large outputs and prior state are preserved through several adjacent mechanisms, including file history, memory files, and compact-boundary metadata.
 
 The main failure logic is pragmatic rather than elegant. Auto-compaction has a small consecutive-failure circuit breaker, and the prompt-too-long retry path peels old context from the head when necessary. That makes it resilient, but also fairly complex to reason about because multiple compaction subsystems overlap.
 
@@ -92,7 +84,7 @@ Shortcomings or non-essential parts:
 
 ## OpenCode
 
-OpenCode is the clearest example of session-centric compaction. The session processor tracks whether compaction is needed, and `SessionCompaction` handles the actual work. The trigger is usually token pressure or a session-level compaction setting, but there is also an explicit pruning stage that marks old tool outputs as compacted before the full summary path runs.
+OpenCode is a clear example of session-centric compaction. The session processor tracks whether compaction is needed, and `SessionCompaction` handles the actual work. The trigger is usually token pressure or a session-level compaction setting, but there is also an explicit pruning stage that marks old tool outputs as compacted before the full summary path runs.
 
 ```ts
 const needsCompaction = await SessionCompaction.isOverflow({ tokens, model })
@@ -220,4 +212,3 @@ What seems non-essential unless the harness grows into it:
 - very rich transcript part taxonomies
 - platform-level routing coupled to compaction internals
 - provider-specific compaction logic leaking into the kernel
-

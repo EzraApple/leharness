@@ -40,12 +40,10 @@ more model/tool work                result event / transcript update
 
 ## Codex
 
-Codex is the most protocol-heavy of the set. Background behavior shows up in several places:
+Codex is very protocol-heavy. Background behavior shows up in several places:
 
 - thread and review operations can be detached onto new threads
 - the protocol includes `spawnAgent`, `wait`, `resumeAgent`, and `closeAgent`
-- background terminal output is explicitly modeled and cleaned up
-- some time accounting is paused or resumed around background terminal activity
 - thread state tracks loaded sessions and spawned descendants
 
 The important thing is that Codex treats background work as part of the thread model, not as an ad hoc side process.
@@ -70,7 +68,6 @@ Good ideas to adapt:
 
 - explicit thread IDs for detached work
 - a real `wait` primitive instead of only polling
-- background-terminal state as a first-class runtime concept
 - child thread lifecycle bookkeeping
 
 Shortcomings or heavier parts:
@@ -81,12 +78,10 @@ Shortcomings or heavier parts:
 
 ## Claude Code
 
-Claude Code has the clearest "background but notify me later" shell story.
+Claude Code has a clear "background but notify me later" shell story.
 
 - `Bash` can be explicitly run in background mode
 - long-running commands can be auto-backgrounded
-- the prompt guidance explicitly says not to poll for a background command started with `run_in_background`
-- a `Monitor` tool is used for streaming output from a background process
 - subagents are separate forked runs with isolated context and their own lifecycle
 - permission and abort logic are separate from the task lifetime
 
@@ -137,7 +132,7 @@ Shortcomings or heavier parts:
 
 ## OpenCode
 
-OpenCode is the most transcript-oriented of the group. Its background work is less about detached jobs and more about durable nested session state.
+OpenCode is highly transcript-oriented. Its background work is less about detached jobs and more about durable nested session state.
 
 - tasks can spawn child sessions
 - `TaskTool` creates a child session, runs it, then summarizes the nested output back into the parent

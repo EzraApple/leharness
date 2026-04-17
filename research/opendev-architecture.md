@@ -6,7 +6,7 @@ This note focuses on the Rust workspace under `opendev/crates`, especially the a
 
 ## High-Level Shape
 
-OpenDev is the most explicitly modular architecture in the set. The workspace is split by subsystem:
+OpenDev is a very explicitly modular architecture. The workspace is split by subsystem:
 
 - CLI and runtime orchestration
 - agents and ReAct loop
@@ -30,17 +30,17 @@ OpenDev’s core loop is `ReactLoop`:
 - dispatch tool calls in parallel or serial form
 - handle completion, truncation, todo checks, and background-task conditions
 
-This is the clearest pure harness loop among the four repos. The codebase makes the ReAct machinery very visible.
+The codebase makes the ReAct machinery very visible.
 
 ## Tool System
 
 The tool framework is strongly typed:
 
 - `BaseTool` defines tool identity, schema, execution, read-only flags, concurrency safety, and category metadata
-- `ToolRegistry` handles alias resolution, normalization, validation, middleware, deduplication, timeouts, and output sanitization
+- `ToolRegistry` plus its execution pipeline handle alias resolution, validation, middleware, deduplication, timeouts, output normalization, and sanitization
 - the registry supports deferred tool schemas, so only a core subset plus activated tools are exposed to the model on a given turn
 
-That deferred-schema idea is important. OpenDev is the most explicit about keeping the model’s live tool surface narrower than the full installed tool universe.
+That deferred-schema idea is important. OpenDev is very explicit about keeping the model’s live tool surface narrower than the full installed tool universe.
 
 ## Approval, Sandbox, and Undo Boundaries
 
@@ -78,7 +78,7 @@ Prompt construction is a major subsystem:
 - factories assemble identity, safety, tool guidance, code-quality, workflow, provider-specific, and environment sections
 - instruction discovery pulls from project docs, global docs, config-defined paths, and managed system locations
 
-This is the most systematic prompt-composition framework in the set. It resembles infrastructure more than prompt text.
+This is a very systematic prompt-composition framework. It resembles infrastructure more than prompt text.
 
 ## Delegation
 
@@ -88,6 +88,7 @@ Delegation is deeply integrated:
 - child agents can run in background mode
 - subagents can override model and working directory
 - `SubagentManager` loads built-in and custom markdown-defined agents
+- teammate and mailbox flows let agents share tasks through team-oriented tools and runners
 - there are both full and simplified runner variants
 
 OpenDev leans hard into multi-agent execution. It treats spawning and managing agent fleets as a core harness feature, not an edge feature.
@@ -111,7 +112,7 @@ The workspace includes broad unit and integration testing plus Criterion benchma
 
 The distinctive parts of OpenDev are:
 
-- the cleanest crate-by-crate harness decomposition
+- very explicit crate-by-crate harness decomposition
 - prompt sections with explicit caching policy
 - deferred tool exposure
 - streaming early execution of safe tools

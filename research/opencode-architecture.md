@@ -16,7 +16,7 @@ OpenCode keeps its harness in one main package, but the core is still fairly wel
 - plugins, skills, and MCP
 - snapshots, storage, and compaction
 
-The important entry boundary is `project/instance.ts`, which binds the runtime to a concrete directory and trusted project root.
+An important project/worktree boundary is `project/instance.ts`, which binds the runtime to a concrete directory and trusted project root.
 
 ## Core Turn Lifecycle
 
@@ -66,7 +66,7 @@ This is a notable design choice. Approval is not only enforced at execution time
 
 ## State, Storage, and Compaction
 
-State is one of OpenCode’s strongest areas:
+State is one of OpenCode’s more distinctive areas:
 
 - sessions, messages, and message parts are persisted as JSON via `storage/storage.ts`
 - `message-v2.ts` defines a typed durable transcript schema

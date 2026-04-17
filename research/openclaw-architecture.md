@@ -128,14 +128,14 @@ This makes OpenClaw closer to OpenDev than to a single-agent CLI harness, but th
 
 ## Extensibility and Channels
 
-OpenClaw is the most channel-centric system in the surveyed set:
+OpenClaw is a very channel-centric system:
 
 - inbound routing can bind different agents to different accounts, peers, guilds, teams, or channels
 - the same core agent runtime can deliver through many chat surfaces and companion apps
 - plugin tools and plugin skill directories extend the runtime without changing the loop
 - session tools let one session coordinate with others through the same gateway model
 
-This is the clearest example of a harness that was designed from the start to survive outside a single CLI or TUI.
+This is a good example of a harness-adjacent runtime that was designed to survive outside a single CLI or TUI.
 
 ## Testing and Diagnostics
 
