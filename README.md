@@ -47,20 +47,25 @@ So this repo is basically me taking notes, doing comparative research, and hopef
 
 These are the main architectural bets I want the base layer to rest on:
 
+At the boundary, the flow should look like:
+
+```ts
+ingress -> invocation -> append invocation events -> run session loop
+```
+
 - `Simple parent loop`
   One clear control loop that stays small, readable, and focused on orchestration.
 
   ```ts
   while (true) {
-    const state = projectState(sessionId)
-    const prompt = buildPrompt(state)
-    const response = await callModel(prompt)
+    const events = loadEvents(sessionId)
+    const session = projectSession(events)
+    const prompt = buildPrompt(session)
+    const step = await runStep(session, prompt)
 
-    await recordResponse(response)
-    await handleToolCalls(response)
-    await maybeCompact(state)
+    await appendEvents(step.events)
 
-    if (!shouldContinue(response, state)) break
+    if (!step.shouldContinue) break
   }
   ```
 
@@ -68,20 +73,21 @@ These are the main architectural bets I want the base layer to rest on:
   The event log should be the source of truth for what happened in a session.
 
   ```json
-  {"type":"user.message","text":"fix the failing test"}
+  {"type":"invocation.received","kind":"message","text":"fix the failing test"}
+  {"type":"step.started","step_id":"step_1"}
   {"type":"model.completed","tool_calls":[{"tool":"bash","execution":"auto"}]}
   {"type":"task.started","task_id":"task_42","kind":"bash"}
   {"type":"task.completed","task_id":"task_42","summary":"2 tests still failing"}
   ```
 
-- `Projected state`
-  Transcripts, model context, task notifications, and artifact indexes should all be derived views over the same underlying session history.
+- `Session derived from events`
+  The session should be rebuilt from events, and everything else should be derived from that session.
 
   ```ts
-  const transcript = projectTranscript(events)
-  const context = projectContextWindow(events)
-  const notifications = projectTaskNotifications(events)
-  const artifacts = projectArtifactIndex(events)
+  const session = projectSession(events)
+  const prompt = buildPrompt(session)
+  const notifications = projectTaskNotifications(session)
+  const artifacts = projectArtifacts(session)
   ```
 
 - `Background as a first-class runtime feature`
@@ -103,10 +109,10 @@ These are the main architectural bets I want the base layer to rest on:
     appendEvent({
       type: "task.completed",
       task_id: task.id,
-      parent_session_id: task.parentSessionId,
+      session_id: task.sessionId,
     })
 
-    markSessionRunnable(task.parentSessionId)
+    markSessionRunnable(task.sessionId)
   }
   ```
 
@@ -115,8 +121,8 @@ These are the main architectural bets I want the base layer to rest on:
 
   ```ts
   const child = await spawnSubagent({
-    parent_session_id: sessionId,
-    task: "investigate the lint failures",
+    session_id: session.id,
+    prompt: "investigate the lint failures",
     execution: "background",
   })
 
