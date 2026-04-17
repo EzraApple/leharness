@@ -60,12 +60,17 @@ ingress -> invocation -> append invocation events -> run session loop
   while (true) {
     const events = loadEvents(sessionId)
     const session = projectSession(events)
+
+    if (shouldCompact(session)) {
+      compact(session)
+      continue
+    }
+
     const prompt = buildPrompt(session)
-    const step = await runStep(session, prompt)
+    const modelOutput = await callModel(prompt)
+    const toolResults = await executeToolCalls(session, modelOutput.toolCalls)
 
-    await appendEvents(step.events)
-
-    if (!step.shouldContinue) break
+    if (!shouldContinue(session, modelOutput, toolResults)) break
   }
   ```
 
