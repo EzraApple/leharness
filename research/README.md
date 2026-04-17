@@ -8,6 +8,9 @@ This folder contains a local survey of five modern agent harnesses:
 - `opendev-architecture.md`
 - `openclaw-architecture.md`
 - `harness-survey.md`
+- `multiagent-survey.md`
+- `background-tasks-survey.md`
+- `compaction-survey.md`
 
 The emphasis is on harness internals:
 
