@@ -1,12 +1,13 @@
 # Harness Architecture Survey
 
-This folder contains a local survey of five modern agent harnesses:
+This folder contains a local survey of six modern agent harnesses:
 
 - `codex-architecture.md`
 - `claude-code-architecture.md`
 - `opencode-architecture.md`
 - `opendev-architecture.md`
 - `openclaw-architecture.md`
+- `pi-mono-architecture.md`
 - `harness-survey.md`
 - `multiagent-survey.md`
 - `background-tasks-survey.md`

@@ -74,6 +74,9 @@ ingress -> invocation -> append invocation events -> run session loop
   }
   ```
 
+- `Generic core, thin wrappers`
+  The harness core should stay generic. CLI, coding-agent defaults, web/TUI, bots, and future products should sit on top instead of leaking into the loop.
+
 - `Event-sourced sessions`
   The event log should be the source of truth for what happened in a session.
 
@@ -174,11 +177,14 @@ Once the core is stable, these should be things I can add independently:
 
 - web inspector
 - richer CLI UX
+- coding-agent wrapper
 - TUI
 - MCP integration
 - skills
 - more tools
 - better compaction strategies
+- steering/follow-up ingress queues
+- branchable session history
 - evals and replay tooling
 - VM runners
 - Telegram or other bot adapters
