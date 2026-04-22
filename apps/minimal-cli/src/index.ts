@@ -1,2 +1,11 @@
 #!/usr/bin/env node
-console.log("leharness CLI placeholder; replaced in Phase 6.")
+import { main } from "./cli.js"
+
+main(process.argv.slice(2))
+  .then((code) => process.exit(code))
+  .catch((err) => {
+    process.stderr.write(
+      `fatal: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`,
+    )
+    process.exit(1)
+  })
