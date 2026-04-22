@@ -1,0 +1,30 @@
+{
+  "transcript": [
+    { "kind": "user", "text": "Read a.txt and b.txt" },
+    {
+      "kind": "assistant",
+      "text": "Reading both files in parallel.",
+      "toolCalls": [
+        { "id": "call_read_a_001", "name": "read_file", "args": { "path": "a.txt" } },
+        { "id": "call_read_b_001", "name": "read_file", "args": { "path": "b.txt" } }
+      ]
+    },
+    {
+      "kind": "tool_result",
+      "callId": "call_read_a_001",
+      "toolName": "read_file",
+      "content": "contents of a"
+    },
+    {
+      "kind": "tool_result",
+      "callId": "call_read_b_001",
+      "toolName": "read_file",
+      "content": "contents of b"
+    },
+    {
+      "kind": "assistant",
+      "text": "a.txt: contents of a\nb.txt: contents of b",
+      "toolCalls": []
+    }
+  ]
+}

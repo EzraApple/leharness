@@ -1,0 +1,10 @@
+{"v":1,"id":"01JFAIL00000000000000USER01","ts":"2026-04-22T12:02:00.000Z","type":"invocation.received","text":"Read missing.txt"}
+{"v":1,"id":"01JFAIL00000000000000STEP01","ts":"2026-04-22T12:02:00.001Z","type":"step.started","stepNumber":1}
+{"v":1,"id":"01JFAIL00000000000000MREQ01","ts":"2026-04-22T12:02:00.002Z","type":"model.requested","request":{"model":"gpt-test","messages":[{"role":"user","content":"Read missing.txt"}]}}
+{"v":1,"id":"01JFAIL00000000000000MCMP01","ts":"2026-04-22T12:02:00.500Z","type":"model.completed","text":"Trying to read it.","toolCalls":[{"id":"call_read_missing_001","name":"read_file","args":{"path":"missing.txt"}}],"usage":{"promptTokens":42,"completionTokens":10}}
+{"v":1,"id":"01JFAIL00000000000000TST001","ts":"2026-04-22T12:02:00.501Z","type":"tool.started","call":{"id":"call_read_missing_001","name":"read_file","args":{"path":"missing.txt"}}}
+{"v":1,"id":"01JFAIL00000000000000TFL001","ts":"2026-04-22T12:02:00.600Z","type":"tool.failed","call":{"id":"call_read_missing_001","name":"read_file","args":{"path":"missing.txt"}},"error":"ENOENT: no such file or directory, open 'missing.txt'"}
+{"v":1,"id":"01JFAIL00000000000000STEP02","ts":"2026-04-22T12:02:00.601Z","type":"step.started","stepNumber":2}
+{"v":1,"id":"01JFAIL00000000000000MREQ02","ts":"2026-04-22T12:02:00.602Z","type":"model.requested","request":{"model":"gpt-test","messages":[{"role":"user","content":"Read missing.txt"},{"role":"assistant","content":"Trying to read it."},{"role":"tool","content":"ENOENT"}]}}
+{"v":1,"id":"01JFAIL00000000000000MCMP02","ts":"2026-04-22T12:02:01.000Z","type":"model.completed","text":"That file does not exist; nothing to read.","toolCalls":[],"usage":{"promptTokens":90,"completionTokens":12}}
+{"v":1,"id":"01JFAIL00000000000000FIN001","ts":"2026-04-22T12:02:01.001Z","type":"agent.finished","reason":"model_returned_no_tool_calls"}

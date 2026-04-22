@@ -1,0 +1,5 @@
+{"v":1,"id":"01JSIMPLE0000000000000USER1","ts":"2026-04-22T12:00:00.000Z","type":"invocation.received","text":"What is 2+2?"}
+{"v":1,"id":"01JSIMPLE0000000000000STEP1","ts":"2026-04-22T12:00:00.001Z","type":"step.started","stepNumber":1}
+{"v":1,"id":"01JSIMPLE000000000000MREQ1","ts":"2026-04-22T12:00:00.002Z","type":"model.requested","request":{"model":"gpt-test","messages":[{"role":"user","content":"What is 2+2?"}]}}
+{"v":1,"id":"01JSIMPLE000000000000MCMP1","ts":"2026-04-22T12:00:00.500Z","type":"model.completed","text":"4","toolCalls":[],"usage":{"promptTokens":12,"completionTokens":1}}
+{"v":1,"id":"01JSIMPLE000000000000FIN01","ts":"2026-04-22T12:00:00.501Z","type":"agent.finished","reason":"model_returned_no_tool_calls"}
