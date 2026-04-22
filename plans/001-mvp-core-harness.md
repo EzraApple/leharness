@@ -17,7 +17,7 @@ These exist as recognized seams but are explicitly out of scope for this plan:
 
 - Background tasks, subagents, compaction, approvals, schema versioning,
   snapshots, SQLite indexes, MCP, plugins, skills, branchable history, web
-  inspector, multi-agent fleets.
+  inspector, multi-agent fleets, mid-flight user steering.
 
 Each must be addable later without changing the loop, reducer, or event log.
 If we hit something here that requires changing those, we stop and revisit.
@@ -27,17 +27,21 @@ If we hit something here that requires changing those, we stop and revisit.
 | Area | Decision |
 |---|---|
 | Language / runtime | TypeScript + Node, pnpm workspaces, vitest |
-| Repo layout | `packages/harness` (generic core) + `apps/minimal-cli` (thin wrapper, no UI/UX) |
+| Repo layout | `packages/harness` (kernel only) + `apps/minimal-cli` (concrete tools + REPL wiring) |
 | Source of truth | Append-only JSONL event log per session, one writer per session |
 | Projection | Pure reducer (events → session state), fold-from-scratch every iteration; no memoization in MVP |
+| Loop shape | Straight-line `while (true)` matching the README pseudocode; no session state machine, no `Action` dispatch, no channel |
+| Step continuation | `shouldContinue` is a function of the most recent model output and a max-step limit; not a state field |
 | Tool execution | Sequential only, auto-approve all (approval seam exists, no policy yet) |
+| Tool ownership | Harness ships the tool *runtime* (interface, registry, executor); concrete tools (`read_file`, `list_dir`, `bash`) live in the consumer (`minimal-cli`) |
 | Large tool output | Truncated inline for MVP with a `[truncated: N bytes]` marker; filesystem-backed artifacts deferred to feature work |
-| Providers | Provider-agnostic interface from day one; Ollama first, then OpenAI |
+| Providers | Provider-agnostic interface from day one; Ollama first, then OpenAI; both implementations live inside `packages/harness` for MVP |
 | Initial Ollama model | `gemma4:26b` (Gemma 4 MoE) |
 | Streaming | Non-streaming for MVP (streaming is a TUI concern, not a loop concern) |
 | Schema versioning | Every event carries `v: 1`; reducer doesn't dispatch on version yet |
 | Storage | JSONL only; no SQLite index |
-| Provider config | Env vars + `~/.leharness/config.json`; no per-session override yet |
+| Project state directory | `.leharness/` at the project root (hidden), holds all harness-managed state. MVP only writes `.leharness/sessions/{ulid}/events.jsonl`; `config.json`, `artifacts/`, locks, etc. are reserved seams added when needed |
+| Provider config | Env vars only for MVP (`LEHARNESS_PROVIDER`, `OPENAI_API_KEY`, `OLLAMA_HOST`, `LEHARNESS_MODEL`). `~/.leharness/config.json` for user-global config and `.leharness/config.json` for project-level overrides are deferred |
 
 ## Repository Layout
 
@@ -45,25 +49,62 @@ If we hit something here that requires changing those, we stop and revisit.
 leharness/
 ├── packages/
 │   └── harness/
-│       ├── src/               # NOTE: structure is being brainstormed separately
-│       │                      # (reducer + session combined; provider in place of model;
-│       │                      #  artifacts deferred). Final breakdown captured before
-│       │                      #  Phase 0 starts.
+│       ├── src/
+│       │   ├── events.ts        # Event union, appendEvent, loadEvents
+│       │   ├── session.ts       # SessionState, reduce, projectSession
+│       │   ├── prompt.ts        # buildPrompt
+│       │   ├── tools.ts         # Tool interface, ToolRegistry, executor (no concrete tools)
+│       │   ├── provider/
+│       │   │   ├── index.ts     # Provider interface, callModel
+│       │   │   ├── ollama.ts
+│       │   │   └── openai.ts
+│       │   ├── harness.ts       # runSession, shouldContinue, compaction stub
+│       │   └── index.ts         # public exports
 │       └── package.json
 ├── apps/
-│   └── minimal-cli/           # Basic stdin/argv parsing only, no UI/UX
+│   └── minimal-cli/             # Basic stdin/argv parsing only, no UI/UX
 │       ├── src/
-│       │   ├── index.ts       # Entry point + arg parsing
-│       │   ├── repl.ts        # REPL mode (line-in/line-out, no animation)
-│       │   └── render.ts      # Plain-text output
+│       │   ├── tools/
+│       │   │   ├── read_file.ts
+│       │   │   ├── list_dir.ts
+│       │   │   ├── bash.ts
+│       │   │   └── index.ts     # buildToolRegistry()
+│       │   ├── cli.ts           # arg parsing, REPL, wires provider + registry into runSession
+│       │   ├── render.ts        # plain-text output
+│       │   └── index.ts         # entry point
 │       └── package.json
 ├── plans/
 ├── research/
+├── .leharness/                  # auto-created on first run, hidden, gitignored
+│   └── sessions/
+│       └── {ulid}/
+│           └── events.jsonl     # the single source of truth per session
 └── pnpm-workspace.yaml
 ```
 
 The TUI ships as its own app (`apps/tui`) added in Phase 8 — a separate
 process that tails session JSONL and projects independently.
+
+### Why `.leharness/` from day one
+
+Even though the MVP only writes `sessions/` inside it, the harness creates
+and uses a hidden `.leharness/` directory at the project root rather than a
+visible top-level `sessions/`. Three reasons:
+
+1. **Single namespace for everything the harness owns.** Future additions
+   (artifacts, locks, project config, caches, branch snapshots) all land
+   under `.leharness/` without polluting the project root.
+2. **Hidden by default.** Dotfile convention — invisible to `ls`, finder,
+   tree, etc. — keeps the user's project view clean.
+3. **One gitignore line.** `.leharness/` covers everything the harness ever
+   writes to the project, forever.
+
+The directory is created lazily on first `appendEvent` call (`mkdir -p`),
+not by an explicit init command. Resolution rules:
+
+- Default project state root: `<cwd>/.leharness/`
+- Override: `LEHARNESS_HOME` env var (absolute path)
+- Sessions root within it: `{root}/sessions/`
 
 ## Phase 0 — Scaffolding
 
@@ -76,7 +117,7 @@ Steps:
    `tsconfig.json` extending root.
 3. `vitest` configured at the root with workspace test discovery.
 4. `biome` (or prettier+eslint, dealer's choice) for formatting and linting.
-5. `.gitignore` adds `sessions/`, `.leharness/`, `node_modules/`, `dist/`.
+5. `.gitignore` adds `.leharness/`, `node_modules/`, `dist/`.
 6. One placeholder test in `packages/harness` that asserts `1 === 1` so CI
    has something to run.
 
@@ -91,24 +132,30 @@ Steps:
 
 1. Define `Event` as a discriminated union. MVP set:
    - `invocation.received` — user message ingress
-   - `step.started` / `step.completed` — bracket each loop iteration
+   - `step.started` — brackets each loop iteration (carries `stepNumber`)
    - `model.requested` / `model.completed` / `model.failed`
-   - `tool.requested` (model asked) / `tool.started` / `tool.completed` / `tool.failed`
-   - `agent.finished` — terminal state for the session
+   - `tool.started` / `tool.completed` / `tool.failed`
+   - `agent.finished` — terminal event for the current invocation
 2. Every event has: `type`, `v: 1`, `id` (ulid), `ts` (ISO timestamp), plus
    type-specific fields.
-3. `appendEvent(sessionId, event)`: `fs.appendFile` to
-   `sessions/{id}/events.jsonl`, line-terminated, sync writes for now.
-4. `loadEvents(sessionId)`: read whole file, split on newlines, parse each.
-5. Discipline: `appendEvent` is exported from one module and the loop is the
+3. `appendEvent(sessionId, event)`: resolves project state root
+   (`LEHARNESS_HOME` or `<cwd>/.leharness`), `mkdir -p {root}/sessions/{id}/`,
+   `fs.appendFile` to `{root}/sessions/{id}/events.jsonl`, line-terminated,
+   sync writes for now.
+4. `loadEvents(sessionId)`: read whole file at `{root}/sessions/{id}/events.jsonl`,
+   split on newlines, parse each.
+5. Path resolution lives in one helper (`resolveSessionPath(sessionId)`)
+   used by both `appendEvent` and `loadEvents` — single source of truth for
+   where state lives.
+6. Discipline: `appendEvent` is exported from one module and the loop is the
    only thing that imports it. A simple grep check in CI later, not now.
-6. Unit tests:
+7. Unit tests:
    - Round-trip: append N events, read back, deep-equal.
    - Malformed line tolerance: corrupt the file, ensure we surface a clear
      error (don't silently drop events).
 
 **Done when:** `pnpm test` passes the events module suite, and
-`cat sessions/test/events.jsonl | jq` shows pretty events.
+`cat .leharness/sessions/test/events.jsonl | jq` shows pretty events.
 
 ## Phase 2 — Session Projection
 
@@ -119,10 +166,11 @@ Steps:
 
 1. Define `SessionState`:
    - `transcript`: array of typed turns (user message, assistant text,
-     assistant tool calls, tool results)
-   - `machine`: `idle | running | awaiting-tool | awaiting-user | failed`
-   - `pendingToolCalls`: tool calls requested but not yet completed
+     assistant tool calls, tool results, tool errors)
    - `metadata`: provider, model, session start time
+   - That's it. No state-machine field, no `pendingToolCalls`. The loop
+     decides what to do next from the most recent model output, not from
+     a state enum.
 2. `reduce(state, event): SessionState` — exhaustive switch on `event.type`,
    no I/O, no `Date.now()` (timestamps come from events).
 3. `projectSession(events): SessionState` — folds reducer over events from
@@ -131,56 +179,82 @@ Steps:
    `SessionState` JSON. Start with ~6 fixtures:
    - empty session (just initial state)
    - single user message, no tools
-   - user → model → finish
+   - user → model → finish (no tool calls)
    - user → model → tool call → tool result → model → finish
-   - tool failure path
-   - malformed model response (parse error → `failed` state)
+   - tool failure path (tool error in transcript, model recovers)
+   - model that calls two tools in one response
 
 **Done when:** all golden fixtures pass and `projectSession` is the only
 place in the codebase that builds a `SessionState`.
 
-## Phase 3 — Channel + Loop Skeleton (No Real Model)
+## Phase 3 — Loop Skeleton (No Real Model, No Real Tools)
 
-**Goal:** the loop runs end-to-end against a fake model. **This is the
-architecture validation phase — spend time here.**
+**Goal:** the loop runs end-to-end against a fake provider and fake tools.
+**This is the architecture validation phase — spend time here.**
+
+The loop is the README pseudocode. Roughly:
+
+```ts
+async function runSession(sessionId, deps) {
+  const append = (e) => appendEvent(sessionId, e)
+  let stepNumber = 0
+
+  while (true) {
+    const session = projectSession(await loadEvents(sessionId))
+
+    if (shouldCompact(session)) {
+      await compact(session, append)         // stub: no-op for MVP
+      continue
+    }
+
+    stepNumber++
+    await append({ type: "step.started", v: 1, stepNumber })
+
+    const request = buildPrompt(session, deps.tools.list())
+    await append({ type: "model.requested", v: 1, request })
+    const modelOutput = await callModel(deps.provider, request)
+    await append({ type: "model.completed", v: 1, ...modelOutput })
+
+    const toolResults = await executeToolCalls(modelOutput.toolCalls, deps.tools, append)
+
+    if (!shouldContinue(modelOutput, toolResults, stepNumber)) {
+      await append({ type: "agent.finished", v: 1, reason: terminalReason(modelOutput, stepNumber) })
+      return
+    }
+  }
+}
+```
 
 Steps:
 
-1. `SessionChannel`: an async queue with `send(message)` and
-   `async *drain()`. In-memory for MVP. One channel per session.
-2. Channel message types:
-   - `user.input` — text prompt from CLI/REPL
-   - (placeholders for future) `task.completed`, `subagent.completed`
-3. `runSession(sessionId, deps)` — the orchestrator:
-   - Load events, project state.
-   - Drain any waiting channel messages; for each, append the corresponding
-     event (`user.input` → `invocation.received`).
-   - Inspect `state.machine`:
-     - `idle` with no pending input → wait on channel
-     - `running` → call provider, append `model.requested` then `model.completed`
-     - `awaiting-tool` → execute tool, append `tool.started` then
-       `tool.completed`/`tool.failed`
-     - `awaiting-user` → wait on channel
-     - `failed` → append `agent.finished` and break
-   - Loop until `machine === "failed"` or session is finished and channel is empty.
-4. `FakeProvider` implementing the `Provider` interface (defined in Phase 5
+1. Implement `runSession`, `shouldContinue`, and a no-op `shouldCompact`/`compact`.
+2. `runInvocation(sessionId, userText, deps)`: appends `invocation.received`,
+   then calls `runSession`. This is what the CLI will call per user message.
+3. `FakeProvider` implementing the `Provider` interface (defined in Phase 5
    ahead of schedule, just enough to compile): returns canned responses.
-5. Integration test: harness a fake provider that returns "I'm done" on first
-   call, feed `user.input` to the channel, run loop, assert the JSONL trace
-   matches an expected fixture.
-6. Second integration test: fake provider that requests a (mock) tool on
-   first call and a final response on second call. Validate the tool round-
-   trip happens correctly even though we don't have real tools yet.
+4. `FakeToolRegistry`: dummy tools the fake provider can "call".
+5. Integration test 1: fake provider returns "I'm done" on first call (no
+   tool calls), assert one step happens, `agent.finished` is emitted, JSONL
+   matches expected fixture.
+6. Integration test 2: fake provider requests a fake tool on first call and
+   a final response on second call. Validate the tool round-trip happens
+   correctly, two `step.started` events are emitted, transcript projects
+   correctly.
+7. Integration test 3: fake provider returns two tool calls in one response.
+   Validate they execute sequentially and both results appear in the next
+   prompt.
 
 **Done when:** integration tests pass against the fake provider, and the
 JSONL files they produce are legible end-to-end traces of what the loop did.
 
-If anything about event shapes, state machine states, or the channel feels
-wrong here, fix it now. Every later phase assumes this is right.
+If anything about event shapes, the loop structure, or the `Provider` /
+`Tool` interfaces feels wrong here, fix it now. Every later phase assumes
+this is right.
 
-## Phase 4 — Tool Runtime
+## Phase 4 — Tool Runtime (Kernel-Side)
 
-**Goal:** tools register, validate, and execute. Loop can do real tool calls.
+**Goal:** the harness package ships the tool *runtime* — interface, registry,
+executor. **No concrete tools live in `packages/harness`.**
 
 Steps:
 
@@ -194,30 +268,26 @@ Steps:
    }
    ```
 2. `ToolRegistry`: register, lookup by name, list all (for prompt builder).
-3. `executeTool(call, registry, ctx)`:
-   - Validate args against schema; on failure, return `tool.failed` with
-     parse error.
+3. `executeToolCall(call, registry, ctx)`:
+   - Validate args against schema; on failure, return a structured error
+     captured as `tool.failed`.
    - Run `tool.execute`.
    - If output exceeds a hard cap (start with 16kb), truncate inline and
      append a `[truncated: N bytes]` marker. Filesystem artifacts come
      later as feature work.
-4. `ToolContext` carries session ID. (Permission handle is a stub returning
+4. `executeToolCalls(calls, registry, append)`: sequential loop, emits
+   `tool.started` and `tool.completed`/`tool.failed` events per call.
+5. `ToolContext` carries session ID. (Permission handle is a stub returning
    `allow` — real seam, no policy yet.)
-5. Three builtin tools to start:
-   - `read_file(path)` — read file contents, truncate if large
-   - `list_dir(path)` — list directory entries
-   - `bash(command)` — exec via `child_process`, capture stdout+stderr,
-     blocking, no timeout for MVP
-6. Wire into the loop: when state machine is `awaiting-tool`, the loop pulls
-   the pending tool call, executes it, appends the result event.
-7. Tests:
-   - Unit tests per tool (fixture filesystems for read/list, mocked exec for
-     bash).
-   - Integration test: fake provider requests `bash("echo hi")`, loop runs
-     it, assistant sees the result, replies, finishes.
+6. Tests: drive the runtime with fake `Tool` implementations (one that
+   succeeds, one that throws, one that produces oversized output, one with
+   bad args). No real fs or process access in these tests — that's the
+   consumer's territory.
 
-**Done when:** the fake-provider integration test exercises a real tool
-call end-to-end.
+**Done when:** the loop in Phase 3 runs against the real `executeToolCalls`
+with fake `Tool`s registered in a real `ToolRegistry`, and the kernel test
+suite exercises every branch of the executor without touching the
+filesystem.
 
 ## Phase 5 — Provider Abstraction + Two Implementations
 
@@ -261,7 +331,8 @@ Steps:
    `~/.leharness/config.json`. Provider name + model recorded in
    `step.started` so logs are reproducible.
 7. Integration test: same canonical scenario runs end-to-end against both
-   providers, swapping config only.
+   providers, swapping config only. Concrete tools still mocked here — real
+   tools land in Phase 6.
 
 **Ollama-specific gotchas to expect (not block on):**
 
@@ -273,32 +344,49 @@ Steps:
   the same nominal size; document the recommended host requirements in the
   minimal-cli README.
 
-**Done when:** `leharness "what files are in this directory?"` works against
-both Ollama (`gemma4:26b`) and OpenAI (`gpt-4o-mini` or similar) by changing
-one env var. Both produce legible JSONL traces.
+**Done when:** an internal scenario runner exercises the loop against both
+providers (Ollama with `gemma4:26b`, OpenAI with `gpt-4o-mini` or similar)
+by swapping one env var, with a fake tool registry. Both produce legible
+JSONL traces.
 
-## Phase 6 — Minimal CLI Wrapper
+## Phase 6 — Minimal CLI + Builtin Tools
 
 **Goal:** human-usable entry point. Bare minimum — no animation, no fancy
-rendering, no UI/UX. Just stdin/argv → loop → stdout.
+rendering, no UI/UX. Just stdin/argv → loop → stdout. This is also where
+real tools land, in the consumer layer.
 
 Steps:
 
-1. `apps/minimal-cli/src/index.ts` parses args:
-   - `leharness "<prompt>"` — one-shot, prints final assistant message
-   - `leharness repl` — REPL, each input is a new turn in the same session
-   - `leharness --session <id>` — resume an existing session
-   - `--provider`, `--model` flag overrides
-2. Session ID generation: ULIDs, stored under `sessions/{id}/`.
-3. `apps/minimal-cli/src/render.ts` — plain-text output, one line per event:
+1. Implement the three builtin tools in `apps/minimal-cli/src/tools/`:
+   - `read_file(path)` — read file contents, large files surfaced via the
+     kernel's truncation cap.
+   - `list_dir(path)` — list directory entries.
+   - `bash(command)` — exec via `child_process`, capture stdout+stderr,
+     blocking, no timeout for MVP.
+2. `tools/index.ts` exports `buildToolRegistry(): ToolRegistry` that
+   constructs a registry with the three tools registered. The harness
+   doesn't know any of them by name.
+3. `apps/minimal-cli/src/cli.ts` parses args:
+   - `leharness "<prompt>"` — one-shot, runs `runInvocation` once, prints
+     final assistant message.
+   - `leharness repl` — REPL: `while (input = await readLine()) await runInvocation(sessionId, input, deps)`.
+   - `leharness --session <id>` — resume an existing session.
+   - `--provider`, `--model` flag overrides.
+4. Wires it all together: builds the provider per config, builds the tool
+   registry via `buildToolRegistry()`, generates a session ID (ULID, stored
+   under `.leharness/sessions/{id}/`), passes both into `runSession` via deps.
+5. `apps/minimal-cli/src/render.ts` — plain-text output, one line per event:
    assistant text in full, tool calls as `> tool_name(args)`, tool results
    as `< 42 lines`. No colors, no spinners, no progress bars.
-4. Subscribe to events via a simple file-watcher or by reading the log after
+6. Subscribe to events via a simple file-watcher or by reading the log after
    each loop iteration. (TUI does this properly in Phase 8; minimal-cli
    stays dumb on purpose.)
+7. Per-tool unit tests live in `apps/minimal-cli` (fixture filesystems for
+   read/list, mocked exec for bash). These don't need to touch the harness.
 
 **Done when:** you can run real tasks from the terminal end-to-end against
-either provider, and the JSONL log is the primary debug surface.
+either provider, the CLI is the only thing that knows what tools exist,
+and the JSONL log is the primary debug surface.
 
 ## Phase 7 — Debug + Tighten
 
@@ -309,15 +397,19 @@ Pass list:
 - Run the canonical acceptance test (below) against both providers.
 - Re-read several JSONL logs by hand. Are field names ones you'll be happy
   with in six months? Now is the cheapest moment to rename.
-- Grep for every call site of `appendEvent`. Confirm they are all in the
-  loop module. If not, push them back.
+- Grep for every call site of `appendEvent`. Confirm they are all in
+  `harness.ts` and `tools.ts` (the kernel's executor). If not, push them
+  back.
 - Verify the reducer is pure: no `Date.now()`, no `Math.random()`, no I/O.
+- Confirm `packages/harness` has zero references to `read_file`, `list_dir`,
+  or `bash` by name. The kernel must not know these exist.
 - Add hostile golden fixtures:
   - tool that throws
   - model that returns malformed tool-call JSON (Ollama will produce these
     naturally)
   - invocation that ends without any tool calls
   - model that calls two tools in one response
+  - long run that hits the max-step safety limit
 - Document the canonical event shapes somewhere in `packages/harness/README.md`.
 
 **Acceptance test for MVP:**
@@ -339,14 +431,15 @@ the loop.
 Steps:
 
 1. `apps/tui` package using Ink (React for terminals).
-2. `chokidar` or `fs.watch` tails `sessions/{id}/events.jsonl`.
+2. `chokidar` or `fs.watch` tails `.leharness/sessions/{id}/events.jsonl`.
 3. Reuses `projectSession` from the harness package to project events to UI
    state. **Do not** duplicate reducer logic in the TUI.
 4. Views:
    - Live transcript with assistant text, tool calls collapsible, tool
      results with line counts.
-   - State indicator: `running | awaiting-tool: bash | awaiting-user`.
-   - Session selector (lists sessions in `sessions/`).
+   - Activity indicator derived from the most recent events (running a tool,
+     waiting on the model, idle since last `agent.finished`).
+   - Session selector (lists sessions in `.leharness/sessions/`).
 5. Zero coupling to the loop. minimal-cli runs the loop in one terminal, TUI
    in another, they communicate only through the JSONL file on disk.
 
@@ -356,30 +449,39 @@ and restarted mid-session with no loss.
 
 ## Workflow
 
-- Each phase is its own branch off `main`: `feat/mvp-phase-N-short-name`.
-- One PR per phase, reviewed and merged before the next phase starts.
-- Within a phase, commits can be incremental and "wip"-style — squash on
-  merge if they're noisy.
-- `main` is always the latest reviewed-good state.
-- This plan branch (`plan/mvp-core-harness`) merges first; phase branches
-  follow.
+For the MVP we deliberately collapse the per-phase PR cadence into a single
+end-to-end implementation pass. Rationale: the phases are tightly coupled
+(an interface change in Phase 1 ripples through Phase 2/3), the surface
+area is small enough that one large PR is reviewable, and parallelizing
+phase work via subagents is only safe if everyone's working on the same
+branch. After the MVP merges and the architecture has been validated end-
+to-end, we'll resume the per-phase PR cadence for feature work.
+
+- Plan branch (`plan/mvp-core-harness`) merges to `main` first, with this
+  document as the contract.
+- Implementation branch: `feat/mvp-implementation` off `main`.
+- One PR for the full MVP (Phases 0–7). Phase 8 (TUI) follows as its own
+  PR since it's independent.
+- Within the implementation branch, commits should follow phase boundaries
+  so that we *can* split into per-phase PRs after the fact if review wants
+  it.
+- Audit subagents review boundary discipline (kernel ↔ tools, kernel ↔
+  providers, reducer purity) before the PR opens.
+- Once the MVP is in, we revert to one branch + one PR per phase for all
+  subsequent feature work.
 
 ## Open Questions
 
-Things I'd like a call on before Phase 0 starts:
+Resolved:
 
-1. **Linter:** biome (single tool, fast) or prettier + eslint (more
-   standard, more configurable)?
-2. **Schema validation library:** zod (most popular, good DX) or
-   typebox/valibot (smaller, faster)?
-3. **HTTP client for providers:** use the `openai` npm SDK with custom
-   `baseURL` for both providers, or hand-roll `fetch` to avoid the
-   dependency? SDK is faster to write; `fetch` is more "build to learn."
-4. **ULID library** or hand-rolled? `ulid` package is fine; we just need
-   sortable unique IDs.
-5. **Sessions directory location:** `./sessions/` (per-project) or
-   `~/.leharness/sessions/` (per-user)? CLI use case probably wants
-   per-project for context, but could be config.
+- **Sessions directory location:** `<cwd>/.leharness/sessions/{ulid}/`,
+  with `LEHARNESS_HOME` as override. Hidden, gitignored, single
+  harness-owned namespace.
 
-Defaults I'll assume if no answer: biome, zod, `openai` SDK with custom
-`baseURL`, `ulid` package, `./sessions/`.
+Defaults assumed (call them out if you want different):
+
+1. **Linter:** biome (single binary, fast).
+2. **Schema validation library:** zod (most popular, good DX).
+3. **HTTP client for providers:** `openai` npm SDK with custom `baseURL`
+   for both Ollama and OpenAI.
+4. **ULID library:** `ulid` package.
