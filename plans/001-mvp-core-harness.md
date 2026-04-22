@@ -27,11 +27,12 @@ If we hit something here that requires changing those, we stop and revisit.
 | Area | Decision |
 |---|---|
 | Language / runtime | TypeScript + Node, pnpm workspaces, vitest |
-| Repo layout | `packages/harness` (generic core) + `apps/cli` (thin wrapper) |
+| Repo layout | `packages/harness` (generic core) + `apps/minimal-cli` (thin wrapper, no UI/UX) |
 | Source of truth | Append-only JSONL event log per session, one writer per session |
-| Projection | Pure reducer, fold-from-scratch every iteration (no memoization in MVP) |
+| Projection | Pure reducer (events → session state), fold-from-scratch every iteration; no memoization in MVP |
 | Tool execution | Sequential only, auto-approve all (approval seam exists, no policy yet) |
-| Model providers | Provider-agnostic interface from day one; Ollama first, then OpenAI |
+| Large tool output | Truncated inline for MVP with a `[truncated: N bytes]` marker; filesystem-backed artifacts deferred to feature work |
+| Providers | Provider-agnostic interface from day one; Ollama first, then OpenAI |
 | Initial Ollama model | `gemma4:26b` (Gemma 4 MoE) |
 | Streaming | Non-streaming for MVP (streaming is a TUI concern, not a loop concern) |
 | Schema versioning | Every event carries `v: 1`; reducer doesn't dispatch on version yet |
@@ -44,23 +45,17 @@ If we hit something here that requires changing those, we stop and revisit.
 leharness/
 ├── packages/
 │   └── harness/
-│       ├── src/
-│       │   ├── events/        # Event types, JSONL persistence, append discipline
-│       │   ├── reducer/       # Pure reducer + golden-fixture tests
-│       │   ├── session/       # SessionState type, state-machine projection
-│       │   ├── channel/       # Per-session ingress channel
-│       │   ├── loop/          # Session loop (the only writer)
-│       │   ├── tools/         # Registry, execution pipeline, builtin tools
-│       │   ├── prompt/        # Prompt builder (state -> provider request)
-│       │   ├── model/         # ModelProvider interface, OpenAI + Ollama impls
-│       │   └── artifacts/     # Filesystem-backed artifact store
+│       ├── src/               # NOTE: structure is being brainstormed separately
+│       │                      # (reducer + session combined; provider in place of model;
+│       │                      #  artifacts deferred). Final breakdown captured before
+│       │                      #  Phase 0 starts.
 │       └── package.json
 ├── apps/
-│   └── cli/
+│   └── minimal-cli/           # Basic stdin/argv parsing only, no UI/UX
 │       ├── src/
 │       │   ├── index.ts       # Entry point + arg parsing
-│       │   ├── repl.ts        # REPL mode
-│       │   └── render.ts      # Plain-text output (TUI lives separately)
+│       │   ├── repl.ts        # REPL mode (line-in/line-out, no animation)
+│       │   └── render.ts      # Plain-text output
 │       └── package.json
 ├── plans/
 ├── research/
@@ -77,12 +72,11 @@ process that tails session JSONL and projects independently.
 Steps:
 
 1. `pnpm-workspace.yaml`, root `package.json`, root `tsconfig.json` (strict).
-2. `packages/harness` and `apps/cli` package skeletons with their own
+2. `packages/harness` and `apps/minimal-cli` package skeletons with their own
    `tsconfig.json` extending root.
 3. `vitest` configured at the root with workspace test discovery.
 4. `biome` (or prettier+eslint, dealer's choice) for formatting and linting.
-5. `.gitignore` adds `sessions/`, `artifacts/`, `.leharness/`, `node_modules/`,
-   `dist/`.
+5. `.gitignore` adds `sessions/`, `.leharness/`, `node_modules/`, `dist/`.
 6. One placeholder test in `packages/harness` that asserts `1 === 1` so CI
    has something to run.
 
@@ -95,13 +89,11 @@ repo root with no errors.
 
 Steps:
 
-1. Define `Event` as a discriminated union in `packages/harness/src/events/types.ts`.
-   MVP set:
+1. Define `Event` as a discriminated union. MVP set:
    - `invocation.received` — user message ingress
    - `step.started` / `step.completed` — bracket each loop iteration
    - `model.requested` / `model.completed` / `model.failed`
    - `tool.requested` (model asked) / `tool.started` / `tool.completed` / `tool.failed`
-   - `artifact.created` — large output persisted to disk
    - `agent.finished` — terminal state for the session
 2. Every event has: `type`, `v: 1`, `id` (ulid), `ts` (ISO timestamp), plus
    type-specific fields.
@@ -118,26 +110,25 @@ Steps:
 **Done when:** `pnpm test` passes the events module suite, and
 `cat sessions/test/events.jsonl | jq` shows pretty events.
 
-## Phase 2 — Reducer + Projection
+## Phase 2 — Session Projection
 
 **Goal:** pure function from events to session state, exhaustively tested.
+The reducer *is* the projection — there's no separate "session" layer.
 
 Steps:
 
-1. Define `SessionState` in `packages/harness/src/session/state.ts`:
+1. Define `SessionState`:
    - `transcript`: array of typed turns (user message, assistant text,
      assistant tool calls, tool results)
    - `machine`: `idle | running | awaiting-tool | awaiting-user | failed`
    - `pendingToolCalls`: tool calls requested but not yet completed
-   - `artifacts`: list of artifact refs
    - `metadata`: provider, model, session start time
 2. `reduce(state, event): SessionState` — exhaustive switch on `event.type`,
    no I/O, no `Date.now()` (timestamps come from events).
 3. `projectSession(events): SessionState` — folds reducer over events from
    a fresh initial state.
-4. Golden-fixture test harness in `packages/harness/src/reducer/__fixtures__/`:
-   each fixture is an input JSONL + an expected `SessionState` JSON.
-   Start with ~6 fixtures:
+4. Golden-fixture tests: each fixture is an input JSONL + an expected
+   `SessionState` JSON. Start with ~6 fixtures:
    - empty session (just initial state)
    - single user message, no tools
    - user → model → finish
@@ -145,8 +136,8 @@ Steps:
    - tool failure path
    - malformed model response (parse error → `failed` state)
 
-**Done when:** all golden fixtures pass and the reducer is the only place in
-the codebase that builds a `SessionState`.
+**Done when:** all golden fixtures pass and `projectSession` is the only
+place in the codebase that builds a `SessionState`.
 
 ## Phase 3 — Channel + Loop Skeleton (No Real Model)
 
@@ -155,25 +146,24 @@ architecture validation phase — spend time here.**
 
 Steps:
 
-1. `SessionChannel` in `packages/harness/src/channel/`: an async queue with
-   `send(message)` and `async *drain()`. In-memory for MVP. One channel per
-   session.
+1. `SessionChannel`: an async queue with `send(message)` and
+   `async *drain()`. In-memory for MVP. One channel per session.
 2. Channel message types:
    - `user.input` — text prompt from CLI/REPL
    - (placeholders for future) `task.completed`, `subagent.completed`
-3. `runSessionLoop(sessionId, deps)` in `packages/harness/src/loop/`:
+3. `runSession(sessionId, deps)` — the orchestrator:
    - Load events, project state.
    - Drain any waiting channel messages; for each, append the corresponding
      event (`user.input` → `invocation.received`).
    - Inspect `state.machine`:
      - `idle` with no pending input → wait on channel
-     - `running` → call model, append `model.requested` then `model.completed`
+     - `running` → call provider, append `model.requested` then `model.completed`
      - `awaiting-tool` → execute tool, append `tool.started` then
        `tool.completed`/`tool.failed`
      - `awaiting-user` → wait on channel
      - `failed` → append `agent.finished` and break
    - Loop until `machine === "failed"` or session is finished and channel is empty.
-4. `FakeProvider` implementing `ModelProvider` (interface defined in Phase 5
+4. `FakeProvider` implementing the `Provider` interface (defined in Phase 5
    ahead of schedule, just enough to compile): returns canned responses.
 5. Integration test: harness a fake provider that returns "I'm done" on first
    call, feed `user.input` to the channel, run loop, assert the JSONL trace
@@ -194,7 +184,7 @@ wrong here, fix it now. Every later phase assumes this is right.
 
 Steps:
 
-1. `Tool` interface in `packages/harness/src/tools/types.ts`:
+1. `Tool` interface:
    ```ts
    interface Tool {
      name: string
@@ -208,12 +198,13 @@ Steps:
    - Validate args against schema; on failure, return `tool.failed` with
      parse error.
    - Run `tool.execute`.
-   - If output > N kb (start with 16kb), persist to artifact and return ref
-     instead of inline content.
-4. `ToolContext` carries: session ID, artifact-store handle. (Permission
-   handle is a stub returning `allow` — real seam, no policy.)
+   - If output exceeds a hard cap (start with 16kb), truncate inline and
+     append a `[truncated: N bytes]` marker. Filesystem artifacts come
+     later as feature work.
+4. `ToolContext` carries session ID. (Permission handle is a stub returning
+   `allow` — real seam, no policy yet.)
 5. Three builtin tools to start:
-   - `read_file(path)` — read file contents, truncate to artifact if large
+   - `read_file(path)` — read file contents, truncate if large
    - `list_dir(path)` — list directory entries
    - `bash(command)` — exec via `child_process`, capture stdout+stderr,
      blocking, no timeout for MVP
@@ -226,7 +217,7 @@ Steps:
      it, assistant sees the result, replies, finishes.
 
 **Done when:** the fake-provider integration test exercises a real tool
-call, including the artifact path for large output.
+call end-to-end.
 
 ## Phase 5 — Provider Abstraction + Two Implementations
 
@@ -235,9 +226,9 @@ by config.
 
 Steps:
 
-1. `ModelProvider` interface in `packages/harness/src/model/types.ts`:
+1. `Provider` interface:
    ```ts
-   interface ModelProvider {
+   interface Provider {
      name: string
      call(req: ProviderRequest): Promise<ProviderResponse>
    }
@@ -248,12 +239,12 @@ Steps:
 2. **Harness-internal types** for messages, content blocks, and tool calls.
    These are what the reducer and prompt builder deal with. Provider impls
    translate to/from native shapes.
-3. `PromptBuilder.build(state): ProviderRequest`:
+3. `buildPrompt(state, tools): ProviderRequest`:
    - Static system prompt for now (can be templated later).
    - Convert `transcript` to `HarnessMessage[]`.
    - Pass registered tools as `HarnessTool[]`.
    - Resolve provider+model from config.
-4. **Ollama implementation first** in `packages/harness/src/model/ollama.ts`:
+4. **Ollama implementation first** (`OllamaProvider`):
    - HTTP to `http://localhost:11434/v1/chat/completions` (Ollama's
      OpenAI-compat endpoint).
    - Use `openai` npm SDK with custom `baseURL` to keep the HTTP client
@@ -261,14 +252,14 @@ Steps:
    - Translate `ProviderRequest` → OpenAI-style messages and tools.
    - Translate response back to `ProviderResponse`.
    - Default model: `gemma4:26b`.
-5. **OpenAI implementation second** in `packages/harness/src/model/openai.ts`:
+5. **OpenAI implementation second** (`OpenAIProvider`):
    - Same SDK, real `api.openai.com` `baseURL`, `OPENAI_API_KEY`.
    - Validate the abstraction generalized — if you find yourself adding
      fields to `ProviderRequest` to make OpenAI work, the interface was wrong
      and Ollama needs the same treatment.
 6. Provider selection: `LEHARNESS_PROVIDER=ollama|openai` env var, or
-   `~/.leharness/config.json`. Provider+model recorded in `step.started` so
-   logs are reproducible.
+   `~/.leharness/config.json`. Provider name + model recorded in
+   `step.started` so logs are reproducible.
 7. Integration test: same canonical scenario runs end-to-end against both
    providers, swapping config only.
 
@@ -280,30 +271,31 @@ Steps:
   context in the prompt builder.
 - `gemma4:26b` is MoE, so memory needs are different from dense models of
   the same nominal size; document the recommended host requirements in the
-  CLI README.
+  minimal-cli README.
 
 **Done when:** `leharness "what files are in this directory?"` works against
 both Ollama (`gemma4:26b`) and OpenAI (`gpt-4o-mini` or similar) by changing
 one env var. Both produce legible JSONL traces.
 
-## Phase 6 — CLI Wrapper
+## Phase 6 — Minimal CLI Wrapper
 
-**Goal:** human-usable entry point.
+**Goal:** human-usable entry point. Bare minimum — no animation, no fancy
+rendering, no UI/UX. Just stdin/argv → loop → stdout.
 
 Steps:
 
-1. `apps/cli/src/index.ts` parses args:
+1. `apps/minimal-cli/src/index.ts` parses args:
    - `leharness "<prompt>"` — one-shot, prints final assistant message
    - `leharness repl` — REPL, each input is a new turn in the same session
    - `leharness --session <id>` — resume an existing session
    - `--provider`, `--model` flag overrides
 2. Session ID generation: ULIDs, stored under `sessions/{id}/`.
-3. `apps/cli/src/render.ts` — plain-text output. For each event the loop
-   appends, print a one-line summary (assistant text in full, tool calls as
-   `> tool_name(args)`, tool results as `< 42 lines`).
+3. `apps/minimal-cli/src/render.ts` — plain-text output, one line per event:
+   assistant text in full, tool calls as `> tool_name(args)`, tool results
+   as `< 42 lines`. No colors, no spinners, no progress bars.
 4. Subscribe to events via a simple file-watcher or by reading the log after
-   each loop iteration. (TUI does this properly in Phase 8; CLI can be
-   dumb.)
+   each loop iteration. (TUI does this properly in Phase 8; minimal-cli
+   stays dumb on purpose.)
 
 **Done when:** you can run real tasks from the terminal end-to-end against
 either provider, and the JSONL log is the primary debug surface.
@@ -326,9 +318,6 @@ Pass list:
     naturally)
   - invocation that ends without any tool calls
   - model that calls two tools in one response
-- Decide artifact filesystem layout. Suggest:
-  `sessions/{id}/artifacts/{artifact_id}.{ext}` with `kind` and `mime` in
-  the `artifact.created` event.
 - Document the canonical event shapes somewhere in `packages/harness/README.md`.
 
 **Acceptance test for MVP:**
@@ -337,9 +326,9 @@ Pass list:
 > tests and what the errors were."
 
 Should produce a JSONL log that tells the full story: invocation → model
-call → bash tool call → artifact created (if test output is large) → model
-reads artifact ref → model responds → session finishes. If that works
-against `gemma4:26b` *and* against OpenAI, the kernel is done.
+call → bash tool call → tool result (truncated if large) → model responds
+→ session finishes. If that works against `gemma4:26b` *and* against
+OpenAI, the kernel is done.
 
 ## Phase 8 — TUI
 
@@ -351,20 +340,19 @@ Steps:
 
 1. `apps/tui` package using Ink (React for terminals).
 2. `chokidar` or `fs.watch` tails `sessions/{id}/events.jsonl`.
-3. Reuses the reducer from `packages/harness/src/reducer/` to project events
-   to UI state. **Do not** duplicate reducer logic in the TUI.
+3. Reuses `projectSession` from the harness package to project events to UI
+   state. **Do not** duplicate reducer logic in the TUI.
 4. Views:
    - Live transcript with assistant text, tool calls collapsible, tool
-     results with line counts and "expand" affordance for artifact refs.
+     results with line counts.
    - State indicator: `running | awaiting-tool: bash | awaiting-user`.
-   - Artifact list pane.
    - Session selector (lists sessions in `sessions/`).
-5. Zero coupling to the loop. CLI runs the loop in one terminal, TUI in
-   another, they communicate only through the JSONL file on disk.
+5. Zero coupling to the loop. minimal-cli runs the loop in one terminal, TUI
+   in another, they communicate only through the JSONL file on disk.
 
-**Done when:** `leharness-tui` opens, you can pick a session, and as the CLI
-loop appends events the TUI updates live. The TUI can be killed and
-restarted mid-session with no loss.
+**Done when:** `leharness-tui` opens, you can pick a session, and as the
+minimal-cli loop appends events the TUI updates live. The TUI can be killed
+and restarted mid-session with no loss.
 
 ## Workflow
 
