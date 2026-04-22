@@ -1,14 +1,8 @@
 import * as fs from "node:fs/promises"
 import * as os from "node:os"
 import * as path from "node:path"
-
-import {
-  ToolRegistry,
-  loadEvents,
-  resolveSessionPath,
-  runInvocation,
-} from "../dist/index.js"
 import { z } from "zod"
+import { loadEvents, resolveSessionPath, runInvocation, ToolRegistry } from "../dist/index.js"
 
 const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "leharness-smoke-"))
 process.env.LEHARNESS_HOME = tmp

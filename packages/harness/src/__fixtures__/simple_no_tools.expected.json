@@ -1,6 +1,0 @@
-{
-  "transcript": [
-    { "kind": "user", "text": "What is 2+2?" },
-    { "kind": "assistant", "text": "4", "toolCalls": [] }
-  ]
-}
