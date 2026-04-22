@@ -310,6 +310,10 @@ The best synthesis is not to choose one model. It is to make the core runtime su
 - explicit join and artifact handoff
 - enough structure to allow future multi-agent coordination without forcing it on day one
 
+### `leharness` Position
+
+The surveys above describe the design space. For the `leharness`-specific choice on subagent log topology — child events streaming into the parent log vs. child sessions with their own logs and reference events in the parent — see `event-log-design.md`. The short version is that the choice is forced by the event-log design rather than picked from the menu: under "one writer per session," only the child-as-its-own-session topology is consistent, which incidentally also makes resumable subagents (the Cursor `resume` pattern) and ephemeral subagents (the Claude / Codex pattern) supported by the same primitives without distinguishing between them.
+
 ## Quick Compare
 
 ```text
