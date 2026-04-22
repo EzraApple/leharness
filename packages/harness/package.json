@@ -19,6 +19,7 @@
     "build:watch": "tsc --watch"
   },
   "dependencies": {
+    "openai": "^6.34.0",
     "ulid": "^3.0.2",
     "zod": "^4.3.6"
   }
