@@ -2,10 +2,8 @@ import { promises as fs } from "node:fs"
 import path from "node:path"
 import { ulid } from "ulid"
 
-// Note (Ezra, 2026-04-22): replaced by Provider package import after Phase 5a lands.
 export type ProviderRequest = unknown
 
-// Note (Ezra, 2026-04-22): replaced by Provider package import after Phase 5a lands.
 export type ToolCall = { id: string; name: string; args: unknown }
 
 export type EventEnvelope = {
@@ -22,7 +20,7 @@ export type Event =
       type: "model.completed"
       text: string
       toolCalls: ToolCall[]
-      usage?: { promptTokens: number; completionTokens: number }
+      usage?: { promptTokens: number; completionTokens: number } | undefined
     })
   | (EventEnvelope & { type: "model.failed"; error: string })
   | (EventEnvelope & { type: "tool.started"; call: ToolCall })
@@ -32,6 +30,8 @@ export type Event =
 
 export type EventOfType<T extends Event["type"]> = Extract<Event, { type: T }>
 
+type EventPayload<T extends Event["type"]> = Omit<EventOfType<T>, keyof EventEnvelope | "type">
+
 export function newEventId(): string {
   return ulid()
 }
@@ -40,11 +40,16 @@ export function nowIso(): string {
   return new Date().toISOString()
 }
 
+export function newEvent<T extends Event["type"]>(
+  type: T,
+  payload: EventPayload<T>,
+): EventOfType<T> {
+  return { type, v: 1, id: newEventId(), ts: nowIso(), ...payload } as EventOfType<T>
+}
+
 export function resolveLeharnessHome(): string {
   const override = process.env.LEHARNESS_HOME
-  if (override !== undefined && override.length > 0) {
-    return path.resolve(override)
-  }
+  if (override !== undefined && override.length > 0) return path.resolve(override)
   return path.resolve(process.cwd(), ".leharness")
 }
 
@@ -64,17 +69,14 @@ export async function loadEvents(sessionId: string): Promise<Event[]> {
   try {
     raw = await fs.readFile(filePath, "utf8")
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-      return []
-    }
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return []
     throw err
   }
 
-  const lines = raw.split("\n")
   const events: Event[] = []
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]
-    if (line === undefined || line.length === 0) continue
+  const lines = raw.split("\n")
+  for (const [i, line] of lines.entries()) {
+    if (line.length === 0) continue
     try {
       events.push(JSON.parse(line) as Event)
     } catch (err) {

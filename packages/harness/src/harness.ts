@@ -1,5 +1,5 @@
 import { type ZodTypeAny, z } from "zod"
-import { appendEvent, type Event, loadEvents, newEventId, nowIso } from "./events.js"
+import { appendEvent, type Event, loadEvents, newEvent } from "./events.js"
 import { type BuildPromptOptions, buildPrompt, DEFAULT_SYSTEM_PROMPT } from "./prompt.js"
 import {
   callModel,
@@ -33,102 +33,67 @@ export async function runInvocation(
   userText: string,
   deps: HarnessDeps,
 ): Promise<SessionState> {
-  await appendEvent(sessionId, {
-    type: "invocation.received",
-    v: 1,
-    id: newEventId(),
-    ts: nowIso(),
-    text: userText,
-  })
+  await appendEvent(sessionId, newEvent("invocation.received", { text: userText }))
   return runSession(sessionId, deps)
 }
 
 export async function runSession(sessionId: string, deps: HarnessDeps): Promise<SessionState> {
-  const append = (event: Event): Promise<void> => appendEvent(sessionId, event)
+  const events: Event[] = await loadEvents(sessionId)
+  const append = async (event: Event): Promise<void> => {
+    events.push(event)
+    await appendEvent(sessionId, event)
+  }
+  const finish = async (reason: string): Promise<SessionState> => {
+    await append(newEvent("agent.finished", { reason }))
+    return projectSession(events)
+  }
+
   const maxSteps = deps.maxSteps ?? DEFAULT_MAX_STEPS
   const ctx: ToolContext = { sessionId, permission: allowAllPermissions }
+  const harnessTools: HarnessTool[] = deps.tools.list().map(toHarnessTool)
+  const promptOptions: BuildPromptOptions = {
+    model: deps.model,
+    system: deps.systemPrompt ?? DEFAULT_SYSTEM_PROMPT,
+    temperature: deps.temperature,
+    maxOutputTokens: deps.maxOutputTokens,
+  }
+
   let stepNumber = 0
-
   while (true) {
-    const session = projectSession(await loadEvents(sessionId))
-
+    const session = projectSession(events)
     if (shouldCompact(session)) {
       await compact(session, append)
       continue
     }
 
     stepNumber++
-    await append({
-      type: "step.started",
-      v: 1,
-      id: newEventId(),
-      ts: nowIso(),
-      stepNumber,
-    })
-
-    const promptOptions: BuildPromptOptions = {
-      model: deps.model,
-      system: deps.systemPrompt ?? DEFAULT_SYSTEM_PROMPT,
-      ...(deps.temperature !== undefined ? { temperature: deps.temperature } : {}),
-      ...(deps.maxOutputTokens !== undefined ? { maxOutputTokens: deps.maxOutputTokens } : {}),
-    }
-    const harnessTools: HarnessTool[] = deps.tools.list().map(toHarnessTool)
+    await append(newEvent("step.started", { stepNumber }))
     const request = buildPrompt(session, harnessTools, promptOptions)
-
-    await append({
-      type: "model.requested",
-      v: 1,
-      id: newEventId(),
-      ts: nowIso(),
-      request,
-    })
+    await append(newEvent("model.requested", { request }))
 
     let modelOutput: ProviderResponse
     try {
       modelOutput = await callModel(deps.provider, request)
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err)
-      await append({
-        type: "model.failed",
-        v: 1,
-        id: newEventId(),
-        ts: nowIso(),
-        error: errorMessage,
-      })
-      await append({
-        type: "agent.finished",
-        v: 1,
-        id: newEventId(),
-        ts: nowIso(),
-        reason: "model_error",
-      })
-      return projectSession(await loadEvents(sessionId))
+      await append(newEvent("model.failed", { error: errorMessage }))
+      return finish("model_error")
     }
 
-    await append({
-      type: "model.completed",
-      v: 1,
-      id: newEventId(),
-      ts: nowIso(),
-      text: modelOutput.text,
-      toolCalls: modelOutput.toolCalls,
-      ...(modelOutput.usage !== undefined ? { usage: modelOutput.usage } : {}),
-    })
+    await append(
+      newEvent("model.completed", {
+        text: modelOutput.text,
+        toolCalls: modelOutput.toolCalls,
+        usage: modelOutput.usage,
+      }),
+    )
 
     if (modelOutput.toolCalls.length > 0) {
       await executeToolCalls(modelOutput.toolCalls, deps.tools, ctx, append)
     }
 
     if (!shouldContinue(modelOutput, stepNumber, maxSteps)) {
-      const reason = stepNumber >= maxSteps ? "max_steps" : "no_tool_calls"
-      await append({
-        type: "agent.finished",
-        v: 1,
-        id: newEventId(),
-        ts: nowIso(),
-        reason,
-      })
-      return projectSession(await loadEvents(sessionId))
+      return finish(stepNumber >= maxSteps ? "max_steps" : "no_tool_calls")
     }
   }
 }
@@ -164,14 +129,11 @@ function toHarnessTool(tool: Tool): HarnessTool {
 }
 
 function zodSchemaToJsonSchema(schema: ZodTypeAny): Record<string, unknown> {
-  // Note (Ezra, 2026-04-22): zod v4 ships z.toJSONSchema, so we delegate instead of
-  // hand-rolling a converter. This keeps schemas faithful (descriptions, optionals,
-  // nested objects, arrays) without adding a dependency. If a tool's schema isn't
-  // representable as JSON Schema, fall back to { type: "object" } so the model still
-  // sees a callable signature rather than crashing the loop.
+  // Note (Ezra, 2026-04-22): zod v4 ships z.toJSONSchema; if a tool's schema isn't
+  // representable we fall back to { type: "object" } so the loop never crashes on
+  // a misconfigured tool.
   try {
-    const json = z.toJSONSchema(schema) as Record<string, unknown>
-    return json
+    return z.toJSONSchema(schema) as Record<string, unknown>
   } catch {
     return { type: "object" }
   }

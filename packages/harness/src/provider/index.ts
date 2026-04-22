@@ -17,17 +17,17 @@ export interface HarnessTool {
 
 export interface ProviderRequest {
   model: string
-  system?: string
+  system?: string | undefined
   messages: HarnessMessage[]
-  tools?: HarnessTool[]
-  temperature?: number
-  maxOutputTokens?: number
+  tools?: HarnessTool[] | undefined
+  temperature?: number | undefined
+  maxOutputTokens?: number | undefined
 }
 
 export interface ProviderResponse {
   text: string
   toolCalls: HarnessToolCall[]
-  usage?: { promptTokens: number; completionTokens: number }
+  usage?: { promptTokens: number; completionTokens: number } | undefined
   stopReason: "stop" | "tool_calls" | "length" | "error"
   raw?: unknown
 }
@@ -41,7 +41,6 @@ export async function callModel(
   provider: Provider,
   request: ProviderRequest,
 ): Promise<ProviderResponse> {
-  // Note (Ezra, 2026-04-22): seam for retry/timeout/observability; intentionally trivial in MVP.
   return provider.call(request)
 }
 

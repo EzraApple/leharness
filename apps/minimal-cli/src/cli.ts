@@ -16,67 +16,33 @@ import { buildToolRegistry } from "./tools/index.js"
 
 export interface ParsedArgs {
   mode: "one_shot" | "repl"
-  prompt?: string
-  sessionId?: string
-  provider?: string
-  model?: string
+  prompt?: string | undefined
+  sessionId?: string | undefined
+  provider?: string | undefined
+  model?: string | undefined
+  help?: boolean | undefined
 }
 
 export function parseArgs(argv: string[]): ParsedArgs {
-  let mode: "one_shot" | "repl" | undefined
+  const out: ParsedArgs = { mode: "repl" }
   let prompt: string | undefined
-  let sessionId: string | undefined
-  let provider: string | undefined
-  let model: string | undefined
-  let help = false
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
     if (arg === undefined) continue
-    if (arg === "--help" || arg === "-h") {
-      help = true
-      continue
-    }
-    if (arg === "--session" || arg === "-s") {
-      sessionId = argv[++i]
-      continue
-    }
-    if (arg === "--provider" || arg === "-p") {
-      provider = argv[++i]
-      continue
-    }
-    if (arg === "--model" || arg === "-m") {
-      model = argv[++i]
-      continue
-    }
-    if (arg === "repl") {
-      mode = "repl"
-      continue
-    }
-    if (arg.startsWith("-")) continue
-    if (prompt === undefined) {
-      prompt = arg
-    }
+    if (arg === "--help" || arg === "-h") out.help = true
+    else if (arg === "--session" || arg === "-s") out.sessionId = argv[++i]
+    else if (arg === "--provider" || arg === "-p") out.provider = argv[++i]
+    else if (arg === "--model" || arg === "-m") out.model = argv[++i]
+    else if (arg === "repl") out.mode = "repl"
+    else if (!arg.startsWith("-") && prompt === undefined) prompt = arg
   }
 
-  if (help) {
-    const out: ParsedArgs = { mode: "one_shot" }
-    if (sessionId !== undefined) out.sessionId = sessionId
-    if (provider !== undefined) out.provider = provider
-    if (model !== undefined) out.model = model
-    return out
+  if (prompt !== undefined && !argv.includes("repl")) {
+    out.mode = "one_shot"
+    out.prompt = prompt
   }
-
-  if (mode === undefined) {
-    mode = prompt !== undefined ? "one_shot" : "repl"
-  }
-
-  const result: ParsedArgs = { mode }
-  if (mode === "one_shot" && prompt !== undefined) result.prompt = prompt
-  if (sessionId !== undefined) result.sessionId = sessionId
-  if (provider !== undefined) result.provider = provider
-  if (model !== undefined) result.model = model
-  return result
+  return out
 }
 
 export function buildProvider(name: string): Provider {
@@ -98,6 +64,10 @@ export function defaultModelFor(providerName: string): string {
 
 export async function main(argv: string[]): Promise<number> {
   const args = parseArgs(argv)
+  if (args.help) {
+    printUsage()
+    return 0
+  }
 
   const providerName = args.provider ?? process.env.LEHARNESS_PROVIDER ?? "ollama"
   const modelName = args.model ?? process.env.LEHARNESS_MODEL ?? defaultModelFor(providerName)
@@ -110,8 +80,7 @@ export async function main(argv: string[]): Promise<number> {
     return 1
   }
 
-  const tools = buildToolRegistry()
-  const deps: HarnessDeps = { provider, tools, model: modelName }
+  const deps: HarnessDeps = { provider, tools: buildToolRegistry(), model: modelName }
   const sessionId = args.sessionId ?? ulid()
 
   if (args.mode === "one_shot") {
@@ -119,7 +88,9 @@ export async function main(argv: string[]): Promise<number> {
       printUsage()
       return 0
     }
-    await runOneShot(sessionId, args.prompt, deps)
+    process.stdout.write(`session: ${sessionId}\n`)
+    process.stdout.write(`> ${args.prompt}\n`)
+    await runAndRender(sessionId, args.prompt, deps)
     return 0
   }
 
@@ -127,14 +98,11 @@ export async function main(argv: string[]): Promise<number> {
   return 0
 }
 
-async function runOneShot(sessionId: string, prompt: string, deps: HarnessDeps): Promise<void> {
-  process.stdout.write(`session: ${sessionId}\n`)
-  process.stdout.write(`> ${prompt}\n`)
-  const beforeEvents = await loadEvents(sessionId)
+async function runAndRender(sessionId: string, prompt: string, deps: HarnessDeps): Promise<void> {
+  const before = (await loadEvents(sessionId)).length
   await runInvocation(sessionId, prompt, deps)
-  const afterEvents = await loadEvents(sessionId)
-  const newEvents = afterEvents.slice(beforeEvents.length)
-  for (const event of newEvents) {
+  const after = await loadEvents(sessionId)
+  for (const event of after.slice(before)) {
     const line = renderEvent(event)
     if (line !== null) process.stdout.write(`${line}\n`)
   }
@@ -155,14 +123,7 @@ async function runRepl(sessionId: string, deps: HarnessDeps): Promise<void> {
     const trimmed = line.trim()
     if (trimmed.length === 0) continue
     if (trimmed === "/exit" || trimmed === "/quit") break
-    const beforeEvents = await loadEvents(sessionId)
-    await runInvocation(sessionId, trimmed, deps)
-    const afterEvents = await loadEvents(sessionId)
-    const newEvents = afterEvents.slice(beforeEvents.length)
-    for (const event of newEvents) {
-      const rendered = renderEvent(event)
-      if (rendered !== null) process.stdout.write(`${rendered}\n`)
-    }
+    await runAndRender(sessionId, trimmed, deps)
   }
   rl.close()
   process.stdout.write(

@@ -1,5 +1,5 @@
 import type { ZodTypeAny } from "zod"
-import { type Event, newEventId, nowIso } from "./events.js"
+import { type Event, newEvent } from "./events.js"
 
 export interface ToolCall {
   id: string
@@ -63,9 +63,7 @@ const MAX_TOOL_OUTPUT_BYTES = 16 * 1024
 export function truncateOutput(output: string): string {
   const buf = Buffer.from(output, "utf8")
   const totalBytes = buf.byteLength
-  if (totalBytes <= MAX_TOOL_OUTPUT_BYTES) {
-    return output
-  }
+  if (totalBytes <= MAX_TOOL_OUTPUT_BYTES) return output
 
   let cut = MAX_TOOL_OUTPUT_BYTES
   while (cut > 0) {
@@ -92,11 +90,7 @@ export async function executeToolCall(
 
   const decision = await ctx.permission.check(call.name, call.args)
   if (decision === "deny") {
-    return {
-      ok: false,
-      callId: call.id,
-      error: `permission denied for tool: ${call.name}`,
-    }
+    return { ok: false, callId: call.id, error: `permission denied for tool: ${call.name}` }
   }
 
   const parsed = tool.schema.safeParse(call.args)
@@ -107,11 +101,7 @@ export async function executeToolCall(
         return `${pathStr}: ${issue.message}`
       })
       .join("; ")
-    return {
-      ok: false,
-      callId: call.id,
-      error: `invalid args for ${call.name}: ${message}`,
-    }
+    return { ok: false, callId: call.id, error: `invalid args for ${call.name}: ${message}` }
   }
 
   try {
@@ -122,11 +112,7 @@ export async function executeToolCall(
     return { ok: false, callId: call.id, error: result.message }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    return {
-      ok: false,
-      callId: call.id,
-      error: `tool ${call.name} threw: ${message}`,
-    }
+    return { ok: false, callId: call.id, error: `tool ${call.name} threw: ${message}` }
   }
 }
 
@@ -140,35 +126,13 @@ export async function executeToolCalls(
 ): Promise<ToolResult[]> {
   const results: ToolResult[] = []
   for (const call of calls) {
-    await append({
-      type: "tool.started",
-      v: 1,
-      id: newEventId(),
-      ts: nowIso(),
-      call,
-    })
-
+    await append(newEvent("tool.started", { call }))
     const result = await executeToolCall(call, registry, ctx)
     results.push(result)
-
     if (result.ok) {
-      await append({
-        type: "tool.completed",
-        v: 1,
-        id: newEventId(),
-        ts: nowIso(),
-        call,
-        result: result.value,
-      })
+      await append(newEvent("tool.completed", { call, result: result.value }))
     } else {
-      await append({
-        type: "tool.failed",
-        v: 1,
-        id: newEventId(),
-        ts: nowIso(),
-        call,
-        error: result.error,
-      })
+      await append(newEvent("tool.failed", { call, error: result.error }))
     }
   }
   return results

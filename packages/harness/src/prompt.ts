@@ -6,9 +6,9 @@ export const DEFAULT_SYSTEM_PROMPT =
 
 export interface BuildPromptOptions {
   model: string
-  system?: string
-  temperature?: number
-  maxOutputTokens?: number
+  system?: string | undefined
+  temperature?: number | undefined
+  maxOutputTokens?: number | undefined
 }
 
 export function buildPrompt(
@@ -16,39 +16,26 @@ export function buildPrompt(
   tools: HarnessTool[],
   options: BuildPromptOptions,
 ): ProviderRequest {
-  const messages: HarnessMessage[] = []
-  for (const entry of session.transcript) {
-    switch (entry.kind) {
-      case "user":
-        messages.push({ role: "user", content: entry.text })
-        break
-      case "assistant":
-        messages.push({
-          role: "assistant",
-          content: entry.text,
-          toolCalls: entry.toolCalls.map((tc) => ({ id: tc.id, name: tc.name, args: tc.args })),
-        })
-        break
-      case "tool_result":
-        messages.push({ role: "tool", toolCallId: entry.callId, content: entry.content })
-        break
-      case "tool_error":
-        messages.push({
-          role: "tool",
-          toolCallId: entry.callId,
-          content: `error: ${entry.error}`,
-        })
-        break
-    }
-  }
-
-  const request: ProviderRequest = {
+  const messages: HarnessMessage[] = session.transcript.map(transcriptToMessage)
+  return {
     model: options.model,
-    ...(options.system !== undefined ? { system: options.system } : {}),
+    system: options.system,
     messages,
-    ...(tools.length > 0 ? { tools } : {}),
-    ...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
-    ...(options.maxOutputTokens !== undefined ? { maxOutputTokens: options.maxOutputTokens } : {}),
+    tools: tools.length > 0 ? tools : undefined,
+    temperature: options.temperature,
+    maxOutputTokens: options.maxOutputTokens,
   }
-  return request
+}
+
+function transcriptToMessage(entry: SessionState["transcript"][number]): HarnessMessage {
+  switch (entry.kind) {
+    case "user":
+      return { role: "user", content: entry.text }
+    case "assistant":
+      return { role: "assistant", content: entry.text, toolCalls: entry.toolCalls }
+    case "tool_result":
+      return { role: "tool", toolCallId: entry.callId, content: entry.content }
+    case "tool_error":
+      return { role: "tool", toolCallId: entry.callId, content: `error: ${entry.error}` }
+  }
 }

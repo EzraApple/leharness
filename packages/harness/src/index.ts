@@ -4,6 +4,7 @@ export {
   type EventEnvelope,
   type EventOfType,
   loadEvents,
+  newEvent,
   newEventId,
   nowIso,
   resolveLeharnessHome,
