@@ -76,7 +76,7 @@ describe("events", () => {
         v: 1,
         id: newEventId(),
         ts: nowIso(),
-        reason: "model_returned_no_tool_calls",
+        reason: "no_tool_calls",
       },
     ]
 

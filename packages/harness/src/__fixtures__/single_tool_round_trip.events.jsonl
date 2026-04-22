@@ -7,4 +7,4 @@
 {"v":1,"id":"01JTRIP00000000000000STEP02","ts":"2026-04-22T12:01:00.601Z","type":"step.started","stepNumber":2}
 {"v":1,"id":"01JTRIP00000000000000MREQ02","ts":"2026-04-22T12:01:00.602Z","type":"model.requested","request":{"model":"gpt-test","messages":[{"role":"user","content":"Read foo.txt"},{"role":"assistant","content":"Reading the file now."},{"role":"tool","content":"hello from foo"}]}}
 {"v":1,"id":"01JTRIP00000000000000MCMP02","ts":"2026-04-22T12:01:01.000Z","type":"model.completed","text":"The file says: hello from foo","toolCalls":[],"usage":{"promptTokens":80,"completionTokens":10}}
-{"v":1,"id":"01JTRIP00000000000000FIN001","ts":"2026-04-22T12:01:01.001Z","type":"agent.finished","reason":"model_returned_no_tool_calls"}
+{"v":1,"id":"01JTRIP00000000000000FIN001","ts":"2026-04-22T12:01:01.001Z","type":"agent.finished","reason":"no_tool_calls"}

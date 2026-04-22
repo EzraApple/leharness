@@ -1,5 +1,5 @@
-import { ulid } from "ulid"
 import type { ZodTypeAny } from "zod"
+import { type Event, newEventId, nowIso } from "./events.js"
 
 export interface ToolCall {
   id: string
@@ -130,7 +130,7 @@ export async function executeToolCall(
   }
 }
 
-export type AppendEvent = (event: unknown) => Promise<void>
+export type AppendEvent = (event: Event) => Promise<void>
 
 export async function executeToolCalls(
   calls: ToolCall[],
@@ -143,8 +143,8 @@ export async function executeToolCalls(
     await append({
       type: "tool.started",
       v: 1,
-      id: ulid(),
-      ts: new Date().toISOString(),
+      id: newEventId(),
+      ts: nowIso(),
       call,
     })
 
@@ -155,8 +155,8 @@ export async function executeToolCalls(
       await append({
         type: "tool.completed",
         v: 1,
-        id: ulid(),
-        ts: new Date().toISOString(),
+        id: newEventId(),
+        ts: nowIso(),
         call,
         result: result.value,
       })
@@ -164,8 +164,8 @@ export async function executeToolCalls(
       await append({
         type: "tool.failed",
         v: 1,
-        id: ulid(),
-        ts: new Date().toISOString(),
+        id: newEventId(),
+        ts: nowIso(),
         call,
         error: result.error,
       })

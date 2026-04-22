@@ -116,9 +116,7 @@ export async function runSession(sessionId: string, deps: HarnessDeps): Promise<
     })
 
     if (modelOutput.toolCalls.length > 0) {
-      await executeToolCalls(modelOutput.toolCalls, deps.tools, ctx, (event) =>
-        append(event as Event),
-      )
+      await executeToolCalls(modelOutput.toolCalls, deps.tools, ctx, append)
     }
 
     if (!shouldContinue(modelOutput, stepNumber, maxSteps)) {

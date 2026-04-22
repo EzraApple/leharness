@@ -111,7 +111,7 @@ describe("reduce", () => {
         id: "01JNOOP000000000000000FIN001",
         ts: "2026-04-22T00:00:00.004Z",
         type: "agent.finished",
-        reason: "model_returned_no_tool_calls",
+        reason: "no_tool_calls",
       },
     ]
     for (const event of noopEvents) {

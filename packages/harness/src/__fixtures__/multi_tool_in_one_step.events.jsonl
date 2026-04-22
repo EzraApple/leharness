@@ -9,4 +9,4 @@
 {"v":1,"id":"01JMULTI0000000000000STEP02","ts":"2026-04-22T12:03:00.602Z","type":"step.started","stepNumber":2}
 {"v":1,"id":"01JMULTI0000000000000MREQ02","ts":"2026-04-22T12:03:00.603Z","type":"model.requested","request":{"model":"gpt-test","messages":[{"role":"user","content":"Read a.txt and b.txt"}]}}
 {"v":1,"id":"01JMULTI0000000000000MCMP02","ts":"2026-04-22T12:03:01.000Z","type":"model.completed","text":"a.txt: contents of a\nb.txt: contents of b","toolCalls":[],"usage":{"promptTokens":120,"completionTokens":18}}
-{"v":1,"id":"01JMULTI0000000000000FIN001","ts":"2026-04-22T12:03:01.001Z","type":"agent.finished","reason":"model_returned_no_tool_calls"}
+{"v":1,"id":"01JMULTI0000000000000FIN001","ts":"2026-04-22T12:03:01.001Z","type":"agent.finished","reason":"no_tool_calls"}

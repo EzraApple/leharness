@@ -16,7 +16,7 @@ export function renderEvent(event: Event): string | null {
       if (hasText && toolLines.length === 0) return event.text
       if (hasText && toolLines.length > 0) return `${event.text}\n${toolLines.join("\n")}`
       if (!hasText && toolLines.length > 0) return toolLines.join("\n")
-      return ""
+      return null
     }
     case "model.failed":
       return `! model error: ${event.error}`
