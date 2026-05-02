@@ -3,6 +3,7 @@ import { stdin, stdout } from "node:process"
 import * as readline from "node:readline/promises"
 import {
   type HarnessDeps,
+  loadEvents,
   OllamaProvider,
   OpenAIProvider,
   type Provider,
@@ -89,12 +90,18 @@ export async function main(argv: string[]): Promise<number> {
     }
     process.stdout.write(`session: ${sessionId}\n`)
     const renderer = new LiveRenderer()
+    if (args.sessionId !== undefined) {
+      const prior = await loadEvents(sessionId)
+      if (prior.length > 0) {
+        process.stdout.write(`(resuming with ${prior.length} prior events)\n`)
+      }
+    }
     renderer.echoUser(args.prompt)
     await runOnce(sessionId, args.prompt, deps, renderer)
     return 0
   }
 
-  await runRepl(sessionId, deps)
+  await runRepl(sessionId, deps, args.sessionId !== undefined)
   return 0
 }
 
@@ -118,30 +125,60 @@ async function runOnce(
   }
 }
 
-async function runRepl(sessionId: string, deps: HarnessDeps): Promise<void> {
+async function runRepl(sessionId: string, deps: HarnessDeps, resuming: boolean): Promise<void> {
   process.stdout.write(`leharness REPL (session: ${sessionId})\n`)
   process.stdout.write(`Provider: ${deps.provider.name}, Model: ${deps.model}\n`)
-  process.stdout.write(
-    `Type your message and press Enter. Ctrl-C aborts a running turn; /exit to quit.\n`,
-  )
-  const rl = readline.createInterface({ input: stdin, output: stdout })
+  process.stdout.write(`/help for commands. Ctrl-C aborts a running turn; /exit to quit.\n\n`)
   const renderer = new LiveRenderer()
+  if (resuming) {
+    const prior = await loadEvents(sessionId)
+    renderer.replayHistory(prior)
+  }
+  const rl = readline.createInterface({ input: stdin, output: stdout })
+  const replPrompt = stdin.isTTY ? "> " : ""
   while (true) {
     let line: string
     try {
-      line = await rl.question("> ")
+      line = await rl.question(replPrompt)
     } catch {
       break
     }
     const trimmed = line.trim()
     if (trimmed.length === 0) continue
     if (trimmed === "/exit" || trimmed === "/quit") break
+    if (trimmed === "/help") {
+      process.stdout.write(replHelp())
+      continue
+    }
+    if (trimmed === "/clear") {
+      process.stdout.write("\x1b[2J\x1b[H")
+      continue
+    }
+    if (trimmed === "/session") {
+      process.stdout.write(`session: ${sessionId}\n`)
+      continue
+    }
+    if (trimmed.startsWith("/")) {
+      process.stdout.write(`unknown command: ${trimmed}. Try /help.\n`)
+      continue
+    }
+    if (!stdin.isTTY) renderer.echoUser(trimmed)
     await runOnce(sessionId, trimmed, deps, renderer)
   }
   rl.close()
   process.stdout.write(
     `session saved at ${path.join(resolveLeharnessHome(), "sessions", sessionId)}\n`,
   )
+}
+
+function replHelp(): string {
+  return `commands:
+  /help        show this help
+  /clear       clear the screen
+  /session     print the current session id
+  /exit        leave the REPL (Ctrl-D also works)
+  Ctrl-C       abort the currently running turn
+`
 }
 
 function printUsage(): void {

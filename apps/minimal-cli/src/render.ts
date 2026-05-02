@@ -42,27 +42,69 @@ export class LiveRenderer {
       case "model.completed":
         this.endAssistantLine()
         for (const tc of (event.toolCalls as ToolCallRef[]) ?? []) {
-          this.out.write(`${dim("→")} ${cyan(tc.name)}${dim(`(${argsPreview(tc.args)})`)}\n`)
+          this.renderToolCall(tc)
         }
         break
-      case "tool.completed": {
-        const lines = summarize(event.result as string, 6, 600).split("\n")
-        for (const line of lines) {
-          this.out.write(`${dim(`← ${line}`)}\n`)
-        }
+      case "tool.completed":
+        this.renderToolResult(event.result as string)
         break
-      }
       case "tool.failed":
-        this.out.write(`${red(`✗ ${event.error as string}`)}\n`)
+        this.renderToolError(event.error as string)
         break
       case "agent.interrupted":
         this.endAssistantLine()
-        this.out.write(`${yellow(`[interrupted: ${event.reason as string}]`)}\n`)
+        this.out.write(`${yellow(`[interrupted: ${event.reason as string}]`)}\n\n`)
         break
       case "agent.finished":
         this.endAssistantLine()
+        this.out.write("\n")
         break
     }
+  }
+
+  replayHistory(events: Event[]): void {
+    if (events.length === 0) return
+    this.out.write(dim("--- prior session ---\n"))
+    for (const event of events) {
+      switch (event.type) {
+        case "invocation.received":
+          this.echoUser(event.text as string)
+          break
+        case "model.completed": {
+          const text = (event.text as string) ?? ""
+          if (text.length > 0) this.out.write(`${text}\n`)
+          for (const tc of (event.toolCalls as ToolCallRef[]) ?? []) {
+            this.renderToolCall(tc)
+          }
+          break
+        }
+        case "tool.completed":
+          this.renderToolResult(event.result as string)
+          break
+        case "tool.failed":
+          this.renderToolError(event.error as string)
+          break
+        case "agent.interrupted":
+          this.out.write(`${yellow(`[interrupted: ${event.reason as string}]`)}\n`)
+          break
+      }
+    }
+    this.out.write(`${dim("---")}\n\n`)
+  }
+
+  private renderToolCall(tc: ToolCallRef): void {
+    this.out.write(`${dim("→")} ${cyan(tc.name)}${dim(`(${argsPreview(tc.args)})`)}\n`)
+  }
+
+  private renderToolResult(result: string): void {
+    const lines = summarize(result, 6, 600).split("\n")
+    for (const line of lines) {
+      this.out.write(`${dim(`← ${line}`)}\n`)
+    }
+  }
+
+  private renderToolError(error: string): void {
+    this.out.write(`${red(`✗ ${error}`)}\n`)
   }
 
   private endAssistantLine(): void {
