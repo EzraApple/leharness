@@ -1,42 +1,90 @@
 import type { Event, ToolCallRef } from "@leharness/harness"
 
-export function renderEvent(event: Event): string | null {
-  switch (event.type) {
-    case "invocation.received":
-      return `> ${event.text as string}`
-    case "model.completed": {
-      const text = event.text as string
-      const toolCalls = (event.toolCalls as ToolCallRef[]) ?? []
-      const toolLines = toolCalls.map((c) => `· ${c.name}(${JSON.stringify(c.args)})`)
-      const parts = [text, ...toolLines].filter((s) => s.length > 0)
-      return parts.length > 0 ? parts.join("\n") : null
+const RESET = "\x1b[0m"
+const DIM = "\x1b[2m"
+const BOLD = "\x1b[1m"
+const RED = "\x1b[31m"
+const YELLOW = "\x1b[33m"
+const CYAN = "\x1b[36m"
+
+const supportsColor = process.stdout.isTTY === true && process.env.NO_COLOR === undefined
+
+function paint(code: string, s: string): string {
+  if (!supportsColor) return s
+  return `${code}${s}${RESET}`
+}
+
+const dim = (s: string) => paint(DIM, s)
+const bold = (s: string) => paint(BOLD, s)
+const red = (s: string) => paint(RED, s)
+const yellow = (s: string) => paint(YELLOW, s)
+const cyan = (s: string) => paint(CYAN, s)
+
+export class LiveRenderer {
+  private out: NodeJS.WritableStream
+  private writingAssistant = false
+
+  constructor(out: NodeJS.WritableStream = process.stdout) {
+    this.out = out
+  }
+
+  echoUser(text: string): void {
+    this.out.write(`${bold("> ")}${text}\n`)
+  }
+
+  onText(delta: string): void {
+    this.writingAssistant = true
+    this.out.write(delta)
+  }
+
+  onEvent(event: Event): void {
+    switch (event.type) {
+      case "model.completed":
+        this.endAssistantLine()
+        for (const tc of (event.toolCalls as ToolCallRef[]) ?? []) {
+          this.out.write(`${dim("→")} ${cyan(tc.name)}${dim(`(${argsPreview(tc.args)})`)}\n`)
+        }
+        break
+      case "tool.completed": {
+        const lines = summarize(event.result as string, 6, 600).split("\n")
+        for (const line of lines) {
+          this.out.write(`${dim(`← ${line}`)}\n`)
+        }
+        break
+      }
+      case "tool.failed":
+        this.out.write(`${red(`✗ ${event.error as string}`)}\n`)
+        break
+      case "agent.interrupted":
+        this.endAssistantLine()
+        this.out.write(`${yellow(`[interrupted: ${event.reason as string}]`)}\n`)
+        break
+      case "agent.finished":
+        this.endAssistantLine()
+        break
     }
-    case "tool.completed": {
-      const call = event.call as ToolCallRef
-      return `< ${call.id}: ${summarizeToolResult(event.result as string)}`
+  }
+
+  private endAssistantLine(): void {
+    if (this.writingAssistant) {
+      this.out.write("\n")
+      this.writingAssistant = false
     }
-    case "tool.failed": {
-      const call = event.call as ToolCallRef
-      return `! tool error (${call.name}): ${event.error as string}`
-    }
-    case "agent.finished":
-      return `[done: ${event.reason as string}]`
-    case "agent.interrupted":
-      return `[interrupted: ${event.reason as string}]`
-    default:
-      return null
   }
 }
 
-export function renderTranscript(events: Event[]): string {
-  return events
-    .map(renderEvent)
-    .filter((line): line is string => line !== null)
-    .join("\n")
+function argsPreview(args: unknown): string {
+  const s = JSON.stringify(args) ?? ""
+  if (s.length > 80) return `${s.slice(0, 77)}...`
+  return s
 }
 
-function summarizeToolResult(result: string): string {
-  if (result.includes("\n")) return `${result.split("\n").length} lines`
-  if (result.length > 80) return `${result.slice(0, 80)}…`
-  return result
+function summarize(s: string, maxLines: number, maxChars: number): string {
+  const allLines = s.split("\n")
+  const head = allLines.slice(0, maxLines).join("\n")
+  const charCapped = head.length > maxChars ? `${head.slice(0, maxChars)}...` : head
+  if (allLines.length > maxLines) {
+    return `${charCapped}\n...(${allLines.length - maxLines} more lines)`
+  }
+  return charCapped
 }

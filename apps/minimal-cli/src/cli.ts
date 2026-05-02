@@ -3,7 +3,6 @@ import { stdin, stdout } from "node:process"
 import * as readline from "node:readline/promises"
 import {
   type HarnessDeps,
-  loadEvents,
   OllamaProvider,
   OpenAIProvider,
   type Provider,
@@ -11,7 +10,7 @@ import {
   runInvocation,
 } from "@leharness/harness"
 import { ulid } from "ulid"
-import { renderEvent } from "./render.js"
+import { LiveRenderer } from "./render.js"
 import { builtinTools } from "./tools/index.js"
 
 export interface ParsedArgs {
@@ -89,8 +88,9 @@ export async function main(argv: string[]): Promise<number> {
       return 0
     }
     process.stdout.write(`session: ${sessionId}\n`)
-    process.stdout.write(`> ${args.prompt}\n`)
-    await runAndRender(sessionId, args.prompt, deps)
+    const renderer = new LiveRenderer()
+    renderer.echoUser(args.prompt)
+    await runOnce(sessionId, args.prompt, deps, renderer)
     return 0
   }
 
@@ -98,28 +98,34 @@ export async function main(argv: string[]): Promise<number> {
   return 0
 }
 
-async function runAndRender(sessionId: string, prompt: string, deps: HarnessDeps): Promise<void> {
-  const before = (await loadEvents(sessionId)).length
+async function runOnce(
+  sessionId: string,
+  prompt: string,
+  deps: HarnessDeps,
+  renderer: LiveRenderer,
+): Promise<void> {
   const controller = new AbortController()
   const onSigint = () => controller.abort()
   process.on("SIGINT", onSigint)
   try {
-    await runInvocation(sessionId, prompt, deps, { signal: controller.signal })
+    await runInvocation(sessionId, prompt, deps, {
+      signal: controller.signal,
+      onText: (delta) => renderer.onText(delta),
+      onEvent: (event) => renderer.onEvent(event),
+    })
   } finally {
     process.off("SIGINT", onSigint)
-  }
-  const after = await loadEvents(sessionId)
-  for (const event of after.slice(before)) {
-    const line = renderEvent(event)
-    if (line !== null) process.stdout.write(`${line}\n`)
   }
 }
 
 async function runRepl(sessionId: string, deps: HarnessDeps): Promise<void> {
   process.stdout.write(`leharness REPL (session: ${sessionId})\n`)
   process.stdout.write(`Provider: ${deps.provider.name}, Model: ${deps.model}\n`)
-  process.stdout.write(`Type your message and press Enter. Ctrl-C or Ctrl-D to exit.\n`)
+  process.stdout.write(
+    `Type your message and press Enter. Ctrl-C aborts a running turn; /exit to quit.\n`,
+  )
   const rl = readline.createInterface({ input: stdin, output: stdout })
+  const renderer = new LiveRenderer()
   while (true) {
     let line: string
     try {
@@ -130,7 +136,7 @@ async function runRepl(sessionId: string, deps: HarnessDeps): Promise<void> {
     const trimmed = line.trim()
     if (trimmed.length === 0) continue
     if (trimmed === "/exit" || trimmed === "/quit") break
-    await runAndRender(sessionId, trimmed, deps)
+    await runOnce(sessionId, trimmed, deps, renderer)
   }
   rl.close()
   process.stdout.write(

@@ -1,7 +1,6 @@
 import * as fs from "node:fs/promises"
 import * as os from "node:os"
 import * as path from "node:path"
-import { z } from "zod"
 import { loadEvents, runInvocation } from "../dist/index.js"
 
 const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "leharness-smoke-int-"))
