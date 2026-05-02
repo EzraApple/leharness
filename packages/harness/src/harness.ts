@@ -16,6 +16,8 @@ export interface HarnessDeps {
 
 export interface RunOptions {
   signal?: AbortSignal
+  onText?: (delta: string) => void
+  onEvent?: (event: Event) => void
 }
 
 export async function runInvocation(
@@ -33,6 +35,7 @@ export async function runInvocation(
     await appendEvent(sessionId, event)
     const entry = eventToTranscriptEntry(event)
     if (entry !== null) transcript.push(entry)
+    options.onEvent?.(event)
   }
 
   await emit("invocation.received", { text: userText })
@@ -56,6 +59,7 @@ export async function runInvocation(
     await emit("step.started", { stepNumber })
     const request = buildPrompt(transcript, harnessTools, promptOptions)
     request.signal = options.signal
+    request.onText = options.onText
     let response: Awaited<ReturnType<typeof deps.provider.call>>
     try {
       response = await deps.provider.call(request)

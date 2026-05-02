@@ -33,12 +33,27 @@ interface OpenAIChatRequest {
   tool_choice?: "auto"
   temperature?: number
   max_tokens?: number
-  stream: false
+  stream: boolean
+  stream_options?: { include_usage: boolean }
 }
 
 interface OpenAIChatCompletion {
   choices: Array<{
     message: { content: string | null; tool_calls?: OpenAIToolCall[] }
+    finish_reason: string | null
+  }>
+  usage?: { prompt_tokens?: number; completion_tokens?: number }
+}
+
+interface OpenAIChunkToolCallDelta {
+  index: number
+  id?: string
+  function?: { name?: string; arguments?: string }
+}
+
+interface OpenAIChatChunk {
+  choices: Array<{
+    delta?: { content?: string; tool_calls?: OpenAIChunkToolCallDelta[] }
     finish_reason: string | null
   }>
   usage?: { prompt_tokens?: number; completion_tokens?: number }
@@ -68,6 +83,11 @@ export class OpenAICompatProvider implements Provider {
   }
 
   async call(req: ProviderRequest): Promise<ProviderResponse> {
+    if (req.onText) return this.callStreaming(req)
+    return this.callNonStreaming(req)
+  }
+
+  private buildBody(req: ProviderRequest, stream: boolean): OpenAIChatRequest {
     const messages: OpenAIMessage[] = []
     if (req.system) messages.push({ role: "system", content: req.system })
     for (const msg of req.messages) messages.push(translateMessage(msg))
@@ -75,15 +95,20 @@ export class OpenAICompatProvider implements Provider {
     const body: OpenAIChatRequest = {
       model: req.model || this.defaultModel,
       messages,
-      stream: false,
+      stream,
     }
+    if (stream) body.stream_options = { include_usage: true }
     if (req.tools && req.tools.length > 0) {
       body.tools = req.tools.map(translateTool)
       body.tool_choice = "auto"
     }
     if (req.temperature !== undefined) body.temperature = req.temperature
     if (req.maxOutputTokens !== undefined) body.max_tokens = req.maxOutputTokens
+    return body
+  }
 
+  private async callNonStreaming(req: ProviderRequest): Promise<ProviderResponse> {
+    const body = this.buildBody(req, false)
     let response: OpenAIChatCompletion
     try {
       response = (await this.client.chat.completions.create(body as never, {
@@ -96,9 +121,7 @@ export class OpenAICompatProvider implements Provider {
     }
 
     const choice = response?.choices?.[0]
-    if (!choice) {
-      throw new ProviderError(`${this.name} response had no choices`, this.name)
-    }
+    if (!choice) throw new ProviderError(`${this.name} response had no choices`, this.name)
 
     const result: ProviderResponse = {
       text: choice.message?.content ?? "",
@@ -110,6 +133,71 @@ export class OpenAICompatProvider implements Provider {
       result.usage = {
         promptTokens: response.usage.prompt_tokens ?? 0,
         completionTokens: response.usage.completion_tokens ?? 0,
+      }
+    }
+    return result
+  }
+
+  private async callStreaming(req: ProviderRequest): Promise<ProviderResponse> {
+    const body = this.buildBody(req, true)
+    let stream: AsyncIterable<OpenAIChatChunk>
+    try {
+      stream = (await this.client.chat.completions.create(body as never, {
+        signal: req.signal,
+      })) as unknown as AsyncIterable<OpenAIChatChunk>
+    } catch (err) {
+      if (req.signal?.aborted) throw err
+      const message = err instanceof Error ? err.message : String(err)
+      throw new ProviderError(`${this.name} stream open failed: ${message}`, this.name, err)
+    }
+
+    let text = ""
+    const toolCalls: OpenAIToolCall[] = []
+    let finishReason: string | null = null
+    let usage: { prompt_tokens?: number; completion_tokens?: number } | undefined
+    let lastChunk: OpenAIChatChunk | null = null
+
+    try {
+      for await (const chunk of stream) {
+        lastChunk = chunk
+        if (chunk.usage) usage = chunk.usage
+        const choice = chunk.choices?.[0]
+        if (!choice) continue
+        const delta = choice.delta ?? {}
+        if (delta.content) {
+          text += delta.content
+          req.onText?.(delta.content)
+        }
+        if (delta.tool_calls) {
+          for (const tc of delta.tool_calls) {
+            const idx = tc.index ?? 0
+            if (!toolCalls[idx]) {
+              toolCalls[idx] = { id: "", type: "function", function: { name: "", arguments: "" } }
+            }
+            const slot = toolCalls[idx]
+            if (tc.id) slot.id = tc.id
+            if (tc.function?.name) slot.function.name += tc.function.name
+            if (tc.function?.arguments) slot.function.arguments += tc.function.arguments
+          }
+        }
+        if (choice.finish_reason) finishReason = choice.finish_reason
+      }
+    } catch (err) {
+      if (req.signal?.aborted) throw err
+      const message = err instanceof Error ? err.message : String(err)
+      throw new ProviderError(`${this.name} stream failed: ${message}`, this.name, err)
+    }
+
+    const result: ProviderResponse = {
+      text,
+      toolCalls: toolCalls.map(parseToolCall),
+      stopReason: mapStopReason(finishReason),
+      raw: lastChunk,
+    }
+    if (usage) {
+      result.usage = {
+        promptTokens: usage.prompt_tokens ?? 0,
+        completionTokens: usage.completion_tokens ?? 0,
       }
     }
     return result
