@@ -20,10 +20,8 @@ export interface Tool<Args = unknown> {
 }
 
 export type ToolResult =
-  | { ok: true; callId: string; value: string }
-  | { ok: false; callId: string; error: string }
-
-export type Emit = (type: string, payload: Record<string, unknown>) => Promise<void>
+  | { ok: true; call: ToolCall; value: string }
+  | { ok: false; call: ToolCall; error: string }
 
 const MAX_TOOL_OUTPUT_BYTES = 16 * 1024
 
@@ -48,7 +46,7 @@ export async function executeToolCall(
 ): Promise<ToolResult> {
   const tool = tools.find((t) => t.name === call.name)
   if (tool === undefined) {
-    return { ok: false, callId: call.id, error: `tool not found: ${call.name}` }
+    return { ok: false, call, error: `tool not found: ${call.name}` }
   }
   const parsed = tool.schema.safeParse(call.args)
   if (!parsed.success) {
@@ -58,17 +56,17 @@ export async function executeToolCall(
         return `${pathStr}: ${issue.message}`
       })
       .join("; ")
-    return { ok: false, callId: call.id, error: `invalid args for ${call.name}: ${message}` }
+    return { ok: false, call, error: `invalid args for ${call.name}: ${message}` }
   }
   try {
     const result = await tool.execute(parsed.data, ctx)
     if (result.kind === "ok") {
-      return { ok: true, callId: call.id, value: truncateOutput(result.output) }
+      return { ok: true, call, value: truncateOutput(result.output) }
     }
-    return { ok: false, callId: call.id, error: result.message }
+    return { ok: false, call, error: result.message }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    return { ok: false, callId: call.id, error: `tool ${call.name} threw: ${message}` }
+    return { ok: false, call, error: `tool ${call.name} threw: ${message}` }
   }
 }
 
@@ -76,11 +74,8 @@ export async function executeToolCalls(
   calls: ToolCall[],
   tools: Tool[],
   ctx: ToolContext,
-  emit: Emit,
-): Promise<void> {
-  for (const call of calls) {
-    const result = await executeToolCall(call, tools, ctx)
-    if (result.ok) await emit("tool.completed", { call, result: result.value })
-    else await emit("tool.failed", { call, error: result.error })
-  }
+): Promise<ToolResult[]> {
+  const results: ToolResult[] = []
+  for (const call of calls) results.push(await executeToolCall(call, tools, ctx))
+  return results
 }

@@ -1,7 +1,7 @@
 import * as fs from "node:fs/promises"
 import * as os from "node:os"
 import * as path from "node:path"
-import { loadEvents, runInvocation } from "../../dist/index.js"
+import { buildPrompt, loadEvents, runInvocation } from "../../dist/index.js"
 
 function assert(cond, msg) {
   if (!cond) {
@@ -39,15 +39,15 @@ const deps = {
   systemPrompt: "smoke resume",
 }
 
-const transcript1 = await runInvocation(sessionId, "first prompt", deps)
-const transcript2 = await runInvocation(sessionId, "second prompt", deps)
+const runEvents1 = await runInvocation(sessionId, "first prompt", deps)
+const runEvents2 = await runInvocation(sessionId, "second prompt", deps)
 
 const events = await loadEvents(sessionId)
 const eventTypes = events.map((e) => e.type)
 
 console.log(`smoke-resume: events after two invocations = ${JSON.stringify(eventTypes)}`)
-console.log(`smoke-resume: transcript1 length = ${transcript1.length}`)
-console.log(`smoke-resume: transcript2 length = ${transcript2.length}`)
+console.log(`smoke-resume: first run event count = ${runEvents1.length}`)
+console.log(`smoke-resume: second run event count = ${runEvents2.length}`)
 
 assert(
   callIndex === responses.length,
@@ -69,16 +69,20 @@ assert(
 )
 
 assert(
-  transcript2.length > transcript1.length,
-  `second transcript should include first invocation's history; got ${transcript1.length} -> ${transcript2.length}`,
+  runEvents2.length > runEvents1.length,
+  `second invocation should include first invocation's event history; got ${runEvents1.length} -> ${runEvents2.length}`,
 )
 
-const userTurnsInTranscript2 = transcript2.filter((e) => e.kind === "user")
+const messages = buildPrompt(events, [], {
+  model: "fake-model",
+  system: "smoke resume",
+}).messages
+const userTurns = messages.filter((m) => m.role === "user")
 assert(
-  userTurnsInTranscript2.length === 2 &&
-    userTurnsInTranscript2[0].text === "first prompt" &&
-    userTurnsInTranscript2[1].text === "second prompt",
-  "resumed transcript should replay both user turns in order",
+  userTurns.length === 2 &&
+    userTurns[0].content === "first prompt" &&
+    userTurns[1].content === "second prompt",
+  "resumed prompt should replay both user turns in order",
 )
 
 const secondRequestMessages = seenRequests[1]

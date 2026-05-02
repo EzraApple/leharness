@@ -2,7 +2,7 @@ import * as fs from "node:fs/promises"
 import * as os from "node:os"
 import * as path from "node:path"
 import { z } from "zod"
-import { loadEvents, runInvocation } from "../../dist/index.js"
+import { buildPrompt, loadEvents, runInvocation } from "../../dist/index.js"
 
 function assert(cond, msg) {
   if (!cond) {
@@ -50,7 +50,7 @@ const fakeProvider = {
 }
 
 const sessionId = "smoke-tool-error-001"
-const transcript = await runInvocation(sessionId, "make the tool fail", {
+await runInvocation(sessionId, "make the tool fail", {
   provider: fakeProvider,
   tools: [failingTool],
   model: "fake-model",
@@ -71,14 +71,19 @@ assert(
 const completedEvents = events.filter((e) => e.type === "tool.completed")
 assert(completedEvents.length === 0, "thrown tool should not produce a tool.completed event")
 
-const errorEntries = transcript.filter((e) => e.kind === "tool_error")
+const messages = buildPrompt(events, [failingTool], {
+  model: "fake-model",
+  system: "smoke tool error",
+}).messages
+const errorEntries = messages.filter((m) => m.role === "tool")
 assert(
   errorEntries.length === 1,
-  `expected 1 tool_error transcript entry, got ${errorEntries.length}`,
+  `expected 1 tool error prompt message, got ${errorEntries.length}`,
 )
 assert(
-  errorEntries[0].toolName === "always_fails" && errorEntries[0].callId === "call_fail_1",
-  "tool_error entry should carry the original call id and tool name",
+  errorEntries[0].toolCallId === "call_fail_1" &&
+    errorEntries[0].content.includes("boom on purpose"),
+  "tool error message should carry the original call id and error text",
 )
 
 const secondRequestMessages = seenRequests[1]
@@ -94,9 +99,9 @@ assert(
 
 assert(callIndex === responses.length, "both scripted responses should be consumed")
 
-const finalAssistant = [...transcript].reverse().find((e) => e.kind === "assistant")
+const finalAssistant = [...messages].reverse().find((m) => m.role === "assistant")
 assert(
-  finalAssistant?.text.includes("I saw the error") === true,
+  finalAssistant?.content.includes("I saw the error") === true,
   "final assistant message should reflect the model getting a chance to respond after the error",
 )
 

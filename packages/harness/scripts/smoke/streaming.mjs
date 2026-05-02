@@ -26,7 +26,7 @@ const streamingProvider = {
 const seenDeltas = []
 const seenEvents = []
 
-const transcript = await runInvocation(
+const events = await runInvocation(
   "smoke-stream-001",
   "say hello",
   { provider: streamingProvider, tools: [], model: "fake", systemPrompt: "test" },
@@ -38,7 +38,7 @@ const transcript = await runInvocation(
 
 console.log(`smoke-streaming: deltas seen = ${JSON.stringify(seenDeltas)}`)
 console.log(`smoke-streaming: events seen = ${JSON.stringify(seenEvents)}`)
-console.log(`smoke-streaming: transcript entries = ${transcript.length}`)
+console.log(`smoke-streaming: persisted events = ${events.length}`)
 
 if (seenDeltas.join("") !== "Hello world!") {
   console.error("FAIL: onText did not receive the expected deltas")

@@ -2,7 +2,7 @@ import * as fs from "node:fs/promises"
 import * as os from "node:os"
 import * as path from "node:path"
 import { z } from "zod"
-import { loadEvents, resolveSessionPath, runInvocation } from "../../dist/index.js"
+import { buildPrompt, loadEvents, resolveSessionPath, runInvocation } from "../../dist/index.js"
 
 function assert(cond, msg) {
   if (!cond) {
@@ -61,11 +61,11 @@ const deps = {
 }
 
 console.log("smoke-basic: running invocation 1")
-const transcript = await runInvocation(sessionId, "Please echo hello world", deps)
+const runEvents = await runInvocation(sessionId, "Please echo hello world", deps)
 
-console.log("smoke-basic: invocation 1 transcript")
-for (const entry of transcript) {
-  console.log(`  ${entry.kind}:`, JSON.stringify(entry).slice(0, 120))
+console.log("smoke-basic: invocation 1 events")
+for (const event of runEvents) {
+  console.log(`  ${event.type}:`, JSON.stringify(event).slice(0, 120))
 }
 
 const jsonlPath = resolveSessionPath(sessionId)
@@ -109,17 +109,19 @@ assert(
   `event types mismatch:\n  expected: ${JSON.stringify(expectedEventTypes)}\n  actual:   ${JSON.stringify(actualEventTypes)}`,
 )
 
-const transcriptKinds = transcript.map((e) => e.kind)
+const messages = buildPrompt(events, tools, {
+  model: "fake-model",
+  system: "You are a smoke test.",
+}).messages
+const roles = messages.map((m) => m.role)
 assert(
-  transcriptKinds.includes("user") &&
-    transcriptKinds.includes("assistant") &&
-    transcriptKinds.includes("tool_result"),
-  `transcript should contain user, assistant, and tool_result entries; got ${JSON.stringify(transcriptKinds)}`,
+  roles.includes("user") && roles.includes("assistant") && roles.includes("tool"),
+  `prompt should contain user, assistant, and tool messages; got ${JSON.stringify(roles)}`,
 )
 
-const finalAssistant = [...transcript].reverse().find((e) => e.kind === "assistant")
+const finalAssistant = [...messages].reverse().find((m) => m.role === "assistant")
 assert(
-  finalAssistant?.text.includes("All done") === true,
+  finalAssistant?.content.includes("All done") === true,
   "final assistant entry should contain the scripted final text",
 )
 
