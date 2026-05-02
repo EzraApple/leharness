@@ -1,5 +1,4 @@
 import type { ZodTypeAny } from "zod"
-import { type Event, newEvent } from "./events.js"
 
 export interface ToolCall {
   id: string
@@ -7,19 +6,8 @@ export interface ToolCall {
   args: unknown
 }
 
-export interface PermissionHandle {
-  check(toolName: string, args: unknown): Promise<"allow" | "deny">
-}
-
-export const allowAllPermissions: PermissionHandle = {
-  async check() {
-    return "allow"
-  },
-}
-
 export interface ToolContext {
   sessionId: string
-  permission: PermissionHandle
 }
 
 export type ToolExecuteResult = { kind: "ok"; output: string } | { kind: "error"; message: string }
@@ -35,36 +23,13 @@ export type ToolResult =
   | { ok: true; callId: string; value: string }
   | { ok: false; callId: string; error: string }
 
-export class ToolRegistry {
-  private tools = new Map<string, Tool>()
-
-  register(tool: Tool): void {
-    if (this.tools.has(tool.name)) {
-      throw new Error(`tool already registered: ${tool.name}`)
-    }
-    this.tools.set(tool.name, tool)
-  }
-
-  get(name: string): Tool | undefined {
-    return this.tools.get(name)
-  }
-
-  list(): Tool[] {
-    return Array.from(this.tools.values())
-  }
-
-  has(name: string): boolean {
-    return this.tools.has(name)
-  }
-}
+export type Emit = (type: string, payload: Record<string, unknown>) => Promise<void>
 
 const MAX_TOOL_OUTPUT_BYTES = 16 * 1024
 
 export function truncateOutput(output: string): string {
   const buf = Buffer.from(output, "utf8")
-  const totalBytes = buf.byteLength
-  if (totalBytes <= MAX_TOOL_OUTPUT_BYTES) return output
-
+  if (buf.byteLength <= MAX_TOOL_OUTPUT_BYTES) return output
   let cut = MAX_TOOL_OUTPUT_BYTES
   while (cut > 0) {
     const byte = buf[cut]
@@ -72,27 +37,19 @@ export function truncateOutput(output: string): string {
     if ((byte & 0xc0) !== 0x80) break
     cut--
   }
-
   const head = buf.subarray(0, cut).toString("utf8")
-  const elided = totalBytes - cut
-  return `${head}\n[truncated: ${elided} bytes]`
+  return `${head}\n[truncated: ${buf.byteLength - cut} bytes]`
 }
 
 export async function executeToolCall(
   call: ToolCall,
-  registry: ToolRegistry,
+  tools: Tool[],
   ctx: ToolContext,
 ): Promise<ToolResult> {
-  const tool = registry.get(call.name)
+  const tool = tools.find((t) => t.name === call.name)
   if (tool === undefined) {
     return { ok: false, callId: call.id, error: `tool not found: ${call.name}` }
   }
-
-  const decision = await ctx.permission.check(call.name, call.args)
-  if (decision === "deny") {
-    return { ok: false, callId: call.id, error: `permission denied for tool: ${call.name}` }
-  }
-
   const parsed = tool.schema.safeParse(call.args)
   if (!parsed.success) {
     const message = parsed.error.issues
@@ -103,7 +60,6 @@ export async function executeToolCall(
       .join("; ")
     return { ok: false, callId: call.id, error: `invalid args for ${call.name}: ${message}` }
   }
-
   try {
     const result = await tool.execute(parsed.data, ctx)
     if (result.kind === "ok") {
@@ -116,24 +72,15 @@ export async function executeToolCall(
   }
 }
 
-export type AppendEvent = (event: Event) => Promise<void>
-
 export async function executeToolCalls(
   calls: ToolCall[],
-  registry: ToolRegistry,
+  tools: Tool[],
   ctx: ToolContext,
-  append: AppendEvent,
-): Promise<ToolResult[]> {
-  const results: ToolResult[] = []
+  emit: Emit,
+): Promise<void> {
   for (const call of calls) {
-    await append(newEvent("tool.started", { call }))
-    const result = await executeToolCall(call, registry, ctx)
-    results.push(result)
-    if (result.ok) {
-      await append(newEvent("tool.completed", { call, result: result.value }))
-    } else {
-      await append(newEvent("tool.failed", { call, error: result.error }))
-    }
+    const result = await executeToolCall(call, tools, ctx)
+    if (result.ok) await emit("tool.completed", { call, result: result.value })
+    else await emit("tool.failed", { call, error: result.error })
   }
-  return results
 }

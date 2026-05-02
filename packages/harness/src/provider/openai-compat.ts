@@ -47,8 +47,8 @@ interface OpenAIChatCompletion {
 export interface OpenAICompatOptions {
   name: string
   apiKey: string
-  baseURL?: string | undefined
-  organization?: string | undefined
+  baseURL?: string
+  organization?: string
   defaultModel: string
 }
 
@@ -62,8 +62,8 @@ export class OpenAICompatProvider implements Provider {
     this.defaultModel = options.defaultModel
     this.client = new OpenAI({
       apiKey: options.apiKey,
-      ...(options.baseURL !== undefined ? { baseURL: options.baseURL } : {}),
-      ...(options.organization !== undefined ? { organization: options.organization } : {}),
+      baseURL: options.baseURL,
+      organization: options.organization,
     })
   }
 

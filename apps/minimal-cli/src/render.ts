@@ -1,26 +1,28 @@
-import type { Event } from "@leharness/harness"
+import type { Event, ToolCallRef } from "@leharness/harness"
 
 export function renderEvent(event: Event): string | null {
   switch (event.type) {
     case "invocation.received":
-      return `> ${event.text}`
-    case "step.started":
-    case "model.requested":
-    case "tool.started":
-      return null
+      return `> ${event.text as string}`
     case "model.completed": {
-      const toolLines = event.toolCalls.map((c) => `· ${c.name}(${JSON.stringify(c.args)})`)
-      const parts = [event.text, ...toolLines].filter((s) => s.length > 0)
+      const text = event.text as string
+      const toolCalls = (event.toolCalls as ToolCallRef[]) ?? []
+      const toolLines = toolCalls.map((c) => `· ${c.name}(${JSON.stringify(c.args)})`)
+      const parts = [text, ...toolLines].filter((s) => s.length > 0)
       return parts.length > 0 ? parts.join("\n") : null
     }
-    case "model.failed":
-      return `! model error: ${event.error}`
-    case "tool.completed":
-      return `< ${event.call.id}: ${summarizeToolResult(event.result)}`
-    case "tool.failed":
-      return `! tool error (${event.call.name}): ${event.error}`
+    case "tool.completed": {
+      const call = event.call as ToolCallRef
+      return `< ${call.id}: ${summarizeToolResult(event.result as string)}`
+    }
+    case "tool.failed": {
+      const call = event.call as ToolCallRef
+      return `! tool error (${call.name}): ${event.error as string}`
+    }
     case "agent.finished":
-      return `[done: ${event.reason}]`
+      return `[done: ${event.reason as string}]`
+    default:
+      return null
   }
 }
 

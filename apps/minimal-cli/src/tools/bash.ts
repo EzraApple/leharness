@@ -14,8 +14,8 @@ export const bashTool: Tool<BashArgs> = {
     "Execute a shell command and return its combined stdout+stderr plus exit code. Blocking — waits for the command to finish. No timeout in MVP, so do not run interactive or long-running commands.",
   schema: bashArgs,
   async execute(args, _ctx: ToolContext): Promise<ToolExecuteResult> {
-    // Note (Ezra, 2026-04-22): no timeout in MVP — interactive or long-running commands will block the loop indefinitely. Add a configurable timeout when CLI gains a way to surface and approve long-running tool calls.
-    // Note (Ezra, 2026-04-22): stdout and stderr are captured into separate buffers and concatenated stdout-then-stderr after the process exits. Cleanly interleaving the two streams in chronological order would require a pty or per-chunk timestamping, which is more complexity than MVP needs.
+    // TODO (2026-04-22): no timeout — interactive/long-running commands block the loop. Add a configurable timeout when the CLI can surface + approve long-running tool calls.
+    // TODO (2026-04-22): stdout and stderr are concatenated post-exit. Interleaving them in chronological order needs a pty or per-chunk timestamps; not worth it yet.
     return new Promise<ToolExecuteResult>((resolve) => {
       const child = spawn("/bin/bash", ["-c", args.command], {
         cwd: process.cwd(),

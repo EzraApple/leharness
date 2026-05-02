@@ -2,7 +2,7 @@ import * as fs from "node:fs/promises"
 import * as os from "node:os"
 import * as path from "node:path"
 import { z } from "zod"
-import { loadEvents, resolveSessionPath, runInvocation, ToolRegistry } from "../dist/index.js"
+import { loadEvents, resolveSessionPath, runInvocation } from "../dist/index.js"
 
 const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "leharness-smoke-"))
 process.env.LEHARNESS_HOME = tmp
@@ -17,8 +17,7 @@ const fakeTool = {
   },
 }
 
-const tools = new ToolRegistry()
-tools.register(fakeTool)
+const tools = [fakeTool]
 
 const scriptedResponses = [
   {
@@ -55,10 +54,10 @@ const deps = {
 }
 
 console.log("smoke: running invocation 1")
-const state1 = await runInvocation(sessionId, "Please echo hello world", deps)
+const transcript = await runInvocation(sessionId, "Please echo hello world", deps)
 
 console.log("smoke: invocation 1 transcript")
-for (const entry of state1.transcript) {
+for (const entry of transcript) {
   console.log(`  ${entry.kind}:`, JSON.stringify(entry).slice(0, 120))
 }
 

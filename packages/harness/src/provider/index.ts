@@ -17,17 +17,17 @@ export interface HarnessTool {
 
 export interface ProviderRequest {
   model: string
-  system?: string | undefined
+  system?: string
   messages: HarnessMessage[]
-  tools?: HarnessTool[] | undefined
-  temperature?: number | undefined
-  maxOutputTokens?: number | undefined
+  tools?: HarnessTool[]
+  temperature?: number
+  maxOutputTokens?: number
 }
 
 export interface ProviderResponse {
   text: string
   toolCalls: HarnessToolCall[]
-  usage?: { promptTokens: number; completionTokens: number } | undefined
+  usage?: { promptTokens: number; completionTokens: number }
   stopReason: "stop" | "tool_calls" | "length" | "error"
   raw?: unknown
 }
@@ -35,13 +35,6 @@ export interface ProviderResponse {
 export interface Provider {
   name: string
   call(req: ProviderRequest): Promise<ProviderResponse>
-}
-
-export async function callModel(
-  provider: Provider,
-  request: ProviderRequest,
-): Promise<ProviderResponse> {
-  return provider.call(request)
 }
 
 export class ProviderError extends Error {

@@ -12,15 +12,15 @@ import {
 } from "@leharness/harness"
 import { ulid } from "ulid"
 import { renderEvent } from "./render.js"
-import { buildToolRegistry } from "./tools/index.js"
+import { builtinTools } from "./tools/index.js"
 
 export interface ParsedArgs {
   mode: "one_shot" | "repl"
-  prompt?: string | undefined
-  sessionId?: string | undefined
-  provider?: string | undefined
-  model?: string | undefined
-  help?: boolean | undefined
+  prompt?: string
+  sessionId?: string
+  provider?: string
+  model?: string
+  help?: boolean
 }
 
 export function parseArgs(argv: string[]): ParsedArgs {
@@ -80,7 +80,7 @@ export async function main(argv: string[]): Promise<number> {
     return 1
   }
 
-  const deps: HarnessDeps = { provider, tools: buildToolRegistry(), model: modelName }
+  const deps: HarnessDeps = { provider, tools: builtinTools, model: modelName }
   const sessionId = args.sessionId ?? ulid()
 
   if (args.mode === "one_shot") {
