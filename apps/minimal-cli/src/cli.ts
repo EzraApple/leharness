@@ -111,24 +111,16 @@ async function runOnce(
   deps: HarnessDeps,
   renderer: LiveRenderer,
 ): Promise<void> {
-  const controller = new AbortController()
-  const onSigint = () => controller.abort()
-  process.on("SIGINT", onSigint)
-  try {
-    await runInvocation(sessionId, prompt, deps, {
-      signal: controller.signal,
-      onText: (delta) => renderer.onText(delta),
-      onEvent: (event) => renderer.onEvent(event),
-    })
-  } finally {
-    process.off("SIGINT", onSigint)
-  }
+  await runInvocation(sessionId, prompt, deps, {
+    onText: (delta) => renderer.onText(delta),
+    onEvent: (event) => renderer.onEvent(event),
+  })
 }
 
 async function runRepl(sessionId: string, deps: HarnessDeps, resuming: boolean): Promise<void> {
-  process.stdout.write(`leharness REPL (session: ${sessionId})\n`)
+  process.stdout.write(`lh REPL (session: ${sessionId})\n`)
   process.stdout.write(`Provider: ${deps.provider.name}, Model: ${deps.model}\n`)
-  process.stdout.write(`/help for commands. Ctrl-C aborts a running turn; /exit to quit.\n\n`)
+  process.stdout.write(`/help for commands. Ctrl-C or /exit to quit.\n\n`)
   const renderer = new LiveRenderer()
   if (resuming) {
     const prior = await loadEvents(sessionId)
@@ -176,32 +168,31 @@ function replHelp(): string {
   /help        show this help
   /clear       clear the screen
   /session     print the current session id
-  /exit        leave the REPL (Ctrl-D also works)
-  Ctrl-C       abort the currently running turn
+  /exit        leave the REPL (Ctrl-C and Ctrl-D also work)
 `
 }
 
 function printUsage(): void {
   process.stdout.write(
-    `leharness - minimal CLI for the leharness agent
+    `lh - minimal CLI for the leharness agent
 
 Usage:
-  leharness "<prompt>"           Run a single prompt and print the response
-  leharness repl                 Enter an interactive REPL
-  leharness --session <id> ...   Resume an existing session
+  lh "<prompt>"             Run a single prompt and print the response
+  lh repl                   Enter an interactive REPL
+  lh --session <id> ...     Resume an existing session
 
 Options:
-  -s, --session <id>             Use the given session id (defaults to a new ULID)
-  -p, --provider <name>          Provider to use (ollama | openai). Defaults to env LEHARNESS_PROVIDER or "ollama".
-  -m, --model <name>             Model name to pass to the provider. Defaults to provider's default.
-  -h, --help                     Show this help
+  -s, --session <id>        Use the given session id (defaults to a new ULID)
+  -p, --provider <name>     Provider to use (ollama | openai). Defaults to env LEHARNESS_PROVIDER or "ollama".
+  -m, --model <name>        Model name to pass to the provider. Defaults to provider's default.
+  -h, --help                Show this help
 
 Environment:
-  LEHARNESS_HOME                 Override .leharness directory location
-  LEHARNESS_PROVIDER             Default provider
-  LEHARNESS_MODEL                Default model
-  OPENAI_API_KEY                 Required when using --provider openai
-  LEHARNESS_OLLAMA_BASE_URL      Override Ollama endpoint (default http://localhost:11434/v1)
+  LEHARNESS_HOME            Override .leharness directory location
+  LEHARNESS_PROVIDER        Default provider
+  LEHARNESS_MODEL           Default model
+  OPENAI_API_KEY            Required when using --provider openai
+  LEHARNESS_OLLAMA_BASE_URL Override Ollama endpoint (default http://localhost:11434/v1)
 `,
   )
 }

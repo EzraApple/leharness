@@ -1,14 +1,9 @@
 import type { Event } from "./events.js"
-
-export interface ToolCallRef {
-  id: string
-  name: string
-  args: unknown
-}
+import type { ToolCall } from "./tools.js"
 
 export type TranscriptEntry =
   | { kind: "user"; text: string }
-  | { kind: "assistant"; text: string; toolCalls: ToolCallRef[] }
+  | { kind: "assistant"; text: string; toolCalls: ToolCall[] }
   | { kind: "tool_result"; callId: string; toolName: string; content: string }
   | { kind: "tool_error"; callId: string; toolName: string; error: string }
 
@@ -20,10 +15,10 @@ export function eventToTranscriptEntry(event: Event): TranscriptEntry | null {
       return {
         kind: "assistant",
         text: event.text as string,
-        toolCalls: (event.toolCalls as ToolCallRef[]) ?? [],
+        toolCalls: (event.toolCalls as ToolCall[]) ?? [],
       }
     case "tool.completed": {
-      const call = event.call as ToolCallRef
+      const call = event.call as ToolCall
       return {
         kind: "tool_result",
         callId: call.id,
@@ -32,7 +27,7 @@ export function eventToTranscriptEntry(event: Event): TranscriptEntry | null {
       }
     }
     case "tool.failed": {
-      const call = event.call as ToolCallRef
+      const call = event.call as ToolCall
       return {
         kind: "tool_error",
         callId: call.id,

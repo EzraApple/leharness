@@ -1,13 +1,9 @@
+import type { ToolCall } from "../tools.js"
+
 export type HarnessMessage =
   | { role: "user"; content: string }
-  | { role: "assistant"; content: string; toolCalls: HarnessToolCall[] }
+  | { role: "assistant"; content: string; toolCalls: ToolCall[] }
   | { role: "tool"; toolCallId: string; content: string }
-
-export interface HarnessToolCall {
-  id: string
-  name: string
-  args: unknown
-}
 
 export interface HarnessTool {
   name: string
@@ -22,13 +18,12 @@ export interface ProviderRequest {
   tools?: HarnessTool[]
   temperature?: number
   maxOutputTokens?: number
-  signal?: AbortSignal
   onText?: (delta: string) => void
 }
 
 export interface ProviderResponse {
   text: string
-  toolCalls: HarnessToolCall[]
+  toolCalls: ToolCall[]
   usage?: { promptTokens: number; completionTokens: number }
   stopReason: "stop" | "tool_calls" | "length" | "error"
   raw?: unknown

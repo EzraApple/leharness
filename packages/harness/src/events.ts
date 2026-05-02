@@ -11,8 +11,6 @@ export interface EventEnvelope {
 
 export type Event = EventEnvelope & Record<string, unknown>
 
-export type EventOf<T extends string, P> = EventEnvelope & { type: T } & P
-
 export function resolveLeharnessHome(): string {
   const override = process.env.LEHARNESS_HOME
   if (override !== undefined && override.length > 0) return path.resolve(override)

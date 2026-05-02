@@ -1,10 +1,9 @@
-import type { Event, ToolCallRef } from "@leharness/harness"
+import type { Event, ToolCall } from "@leharness/harness"
 
 const RESET = "\x1b[0m"
 const DIM = "\x1b[2m"
 const BOLD = "\x1b[1m"
 const RED = "\x1b[31m"
-const YELLOW = "\x1b[33m"
 const CYAN = "\x1b[36m"
 
 const supportsColor = process.stdout.isTTY === true && process.env.NO_COLOR === undefined
@@ -17,7 +16,6 @@ function paint(code: string, s: string): string {
 const dim = (s: string) => paint(DIM, s)
 const bold = (s: string) => paint(BOLD, s)
 const red = (s: string) => paint(RED, s)
-const yellow = (s: string) => paint(YELLOW, s)
 const cyan = (s: string) => paint(CYAN, s)
 
 export class LiveRenderer {
@@ -40,8 +38,13 @@ export class LiveRenderer {
   onEvent(event: Event): void {
     switch (event.type) {
       case "model.completed":
-        this.endAssistantLine()
-        for (const tc of (event.toolCalls as ToolCallRef[]) ?? []) {
+        if (this.writingAssistant) {
+          this.endAssistantLine()
+        } else {
+          const text = (event.text as string) ?? ""
+          if (text.length > 0) this.out.write(`${text}\n`)
+        }
+        for (const tc of (event.toolCalls as ToolCall[]) ?? []) {
           this.renderToolCall(tc)
         }
         break
@@ -50,10 +53,6 @@ export class LiveRenderer {
         break
       case "tool.failed":
         this.renderToolError(event.error as string)
-        break
-      case "agent.interrupted":
-        this.endAssistantLine()
-        this.out.write(`${yellow(`[interrupted: ${event.reason as string}]`)}\n\n`)
         break
       case "agent.finished":
         this.endAssistantLine()
@@ -73,7 +72,7 @@ export class LiveRenderer {
         case "model.completed": {
           const text = (event.text as string) ?? ""
           if (text.length > 0) this.out.write(`${text}\n`)
-          for (const tc of (event.toolCalls as ToolCallRef[]) ?? []) {
+          for (const tc of (event.toolCalls as ToolCall[]) ?? []) {
             this.renderToolCall(tc)
           }
           break
@@ -84,15 +83,12 @@ export class LiveRenderer {
         case "tool.failed":
           this.renderToolError(event.error as string)
           break
-        case "agent.interrupted":
-          this.out.write(`${yellow(`[interrupted: ${event.reason as string}]`)}\n`)
-          break
       }
     }
     this.out.write(`${dim("---")}\n\n`)
   }
 
-  private renderToolCall(tc: ToolCallRef): void {
+  private renderToolCall(tc: ToolCall): void {
     this.out.write(`${dim("→")} ${cyan(tc.name)}${dim(`(${argsPreview(tc.args)})`)}\n`)
   }
 

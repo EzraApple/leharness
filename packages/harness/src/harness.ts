@@ -15,10 +15,13 @@ export interface HarnessDeps {
 }
 
 export interface RunOptions {
-  signal?: AbortSignal
   onText?: (delta: string) => void
   onEvent?: (event: Event) => void
 }
+
+// TODO (2026-05-02): no max-step cap and no in-turn interrupt. For now Ctrl-C
+// kills the process; resume picks up from the last persisted event. Add a step
+// budget and an Escape-to-abort path once we feel them missing.
 
 export async function runInvocation(
   sessionId: string,
@@ -40,7 +43,7 @@ export async function runInvocation(
 
   await emit("invocation.received", { text: userText })
 
-  const ctx: ToolContext = { sessionId, signal: options.signal }
+  const ctx: ToolContext = { sessionId }
   const harnessTools = deps.tools.map(toHarnessTool)
   const promptOptions: BuildPromptOptions = {
     model: deps.model,
@@ -51,25 +54,11 @@ export async function runInvocation(
 
   let stepNumber = 0
   while (true) {
-    if (options.signal?.aborted) {
-      await emit("agent.interrupted", { reason: "user_interrupt" })
-      return transcript
-    }
     stepNumber++
     await emit("step.started", { stepNumber })
     const request = buildPrompt(transcript, harnessTools, promptOptions)
-    request.signal = options.signal
     request.onText = options.onText
-    let response: Awaited<ReturnType<typeof deps.provider.call>>
-    try {
-      response = await deps.provider.call(request)
-    } catch (err) {
-      if (options.signal?.aborted) {
-        await emit("agent.interrupted", { reason: "user_interrupt" })
-        return transcript
-      }
-      throw err
-    }
+    const response = await deps.provider.call(request)
     await emit("model.completed", {
       text: response.text,
       toolCalls: response.toolCalls,
@@ -80,7 +69,6 @@ export async function runInvocation(
       return transcript
     }
     await executeToolCalls(response.toolCalls, deps.tools, ctx, emit)
-    // TODO (2026-05-02): no max-step cap. Add a budget once we observe runaway loops.
   }
 }
 
