@@ -1,7 +1,7 @@
 import * as fs from "node:fs/promises"
 import * as os from "node:os"
 import * as path from "node:path"
-import { runInvocation } from "../dist/index.js"
+import { runInvocation } from "../../dist/index.js"
 
 const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "leharness-smoke-stream-"))
 process.env.LEHARNESS_HOME = tmp
