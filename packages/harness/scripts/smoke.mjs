@@ -4,6 +4,13 @@ import * as path from "node:path"
 import { z } from "zod"
 import { loadEvents, resolveSessionPath, runInvocation } from "../dist/index.js"
 
+function assert(cond, msg) {
+  if (!cond) {
+    console.error(`FAIL: ${msg}`)
+    process.exit(1)
+  }
+}
+
 const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "leharness-smoke-"))
 process.env.LEHARNESS_HOME = tmp
 console.log(`smoke: LEHARNESS_HOME = ${tmp}`)
@@ -82,5 +89,38 @@ const directoryExists = await fs
   .then(() => true)
   .catch(() => false)
 console.log(`smoke: session directory exists = ${directoryExists}`)
+
+assert(directoryExists, "session directory should exist on disk")
+assert(events.length === lines.length, "loadEvents count should match jsonl line count")
+assert(callIndex === scriptedResponses.length, "all scripted provider responses should be consumed")
+
+const expectedEventTypes = [
+  "invocation.received",
+  "step.started",
+  "model.completed",
+  "tool.completed",
+  "step.started",
+  "model.completed",
+  "agent.finished",
+]
+const actualEventTypes = events.map((e) => e.type)
+assert(
+  JSON.stringify(actualEventTypes) === JSON.stringify(expectedEventTypes),
+  `event types mismatch:\n  expected: ${JSON.stringify(expectedEventTypes)}\n  actual:   ${JSON.stringify(actualEventTypes)}`,
+)
+
+const transcriptKinds = transcript.map((e) => e.kind)
+assert(
+  transcriptKinds.includes("user") &&
+    transcriptKinds.includes("assistant") &&
+    transcriptKinds.includes("tool_result"),
+  `transcript should contain user, assistant, and tool_result entries; got ${JSON.stringify(transcriptKinds)}`,
+)
+
+const finalAssistant = [...transcript].reverse().find((e) => e.kind === "assistant")
+assert(
+  finalAssistant?.text.includes("All done") === true,
+  "final assistant entry should contain the scripted final text",
+)
 
 console.log("\nsmoke: SUCCESS")

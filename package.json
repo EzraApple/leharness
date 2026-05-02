@@ -11,7 +11,8 @@
     "typecheck": "pnpm -r build",
     "knip": "knip",
     "lint": "biome check .",
-    "format": "biome format --write ."
+    "format": "biome format --write .",
+    "smoke": "pnpm -r build && node packages/harness/scripts/smoke.mjs && node packages/harness/scripts/smoke-streaming.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.12",
