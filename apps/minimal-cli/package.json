@@ -5,13 +5,14 @@
   "type": "module",
   "main": "./dist/index.js",
   "bin": {
+    "lh": "./dist/index.js",
     "leharness": "./dist/index.js"
   },
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && chmod +x dist/index.js",
     "dev": "tsx src/index.ts",
     "start": "node dist/index.js"
   },
