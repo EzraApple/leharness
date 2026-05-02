@@ -59,7 +59,7 @@ interface OpenAIChatChunk {
   usage?: { prompt_tokens?: number; completion_tokens?: number }
 }
 
-export interface OpenAICompatOptions {
+interface OpenAICompatOptions {
   name: string
   apiKey: string
   baseURL?: string
