@@ -15,7 +15,7 @@ import { LiveRenderer } from "./render.js"
 import { builtinTools } from "./tools/index.js"
 
 export interface ParsedArgs {
-  mode: "one_shot" | "repl"
+  mode: "one_shot" | "interactive"
   prompt?: string
   sessionId?: string
   provider?: string
@@ -23,9 +23,12 @@ export interface ParsedArgs {
   help?: boolean
 }
 
+const APP_SUBCOMMANDS = new Set(["cli", "repl"])
+
 export function parseArgs(argv: string[]): ParsedArgs {
-  const out: ParsedArgs = { mode: "repl" }
+  const out: ParsedArgs = { mode: "interactive" }
   let prompt: string | undefined
+  let sawAppSubcommand = false
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
@@ -34,11 +37,11 @@ export function parseArgs(argv: string[]): ParsedArgs {
     else if (arg === "--session" || arg === "-s") out.sessionId = argv[++i]
     else if (arg === "--provider" || arg === "-p") out.provider = argv[++i]
     else if (arg === "--model" || arg === "-m") out.model = argv[++i]
-    else if (arg === "repl") out.mode = "repl"
+    else if (APP_SUBCOMMANDS.has(arg)) sawAppSubcommand = true
     else if (!arg.startsWith("-") && prompt === undefined) prompt = arg
   }
 
-  if (prompt !== undefined && !argv.includes("repl")) {
+  if (prompt !== undefined && !sawAppSubcommand) {
     out.mode = "one_shot"
     out.prompt = prompt
   }
@@ -101,7 +104,7 @@ export async function main(argv: string[]): Promise<number> {
     return 0
   }
 
-  await runRepl(sessionId, deps, args.sessionId !== undefined)
+  await runInteractive(sessionId, deps, args.sessionId !== undefined)
   return 0
 }
 
@@ -117,8 +120,12 @@ async function runOnce(
   })
 }
 
-async function runRepl(sessionId: string, deps: HarnessDeps, resuming: boolean): Promise<void> {
-  process.stdout.write(`lh REPL (session: ${sessionId})\n`)
+async function runInteractive(
+  sessionId: string,
+  deps: HarnessDeps,
+  resuming: boolean,
+): Promise<void> {
+  process.stdout.write(`lh cli (session: ${sessionId})\n`)
   process.stdout.write(`Provider: ${deps.provider.name}, Model: ${deps.model}\n`)
   process.stdout.write(`/help for commands. Ctrl-C or /exit to quit.\n\n`)
   const renderer = new LiveRenderer()
@@ -168,17 +175,18 @@ function replHelp(): string {
   /help        show this help
   /clear       clear the screen
   /session     print the current session id
-  /exit        leave the REPL (Ctrl-C and Ctrl-D also work)
+  /exit        leave the cli (Ctrl-C and Ctrl-D also work)
 `
 }
 
 function printUsage(): void {
   process.stdout.write(
-    `lh - minimal CLI for the leharness agent
+    `lh - launcher for leharness apps
 
 Usage:
+  lh                        Start the interactive cli (default)
+  lh cli                    Start the interactive cli (explicit)
   lh "<prompt>"             Run a single prompt and print the response
-  lh repl                   Enter an interactive REPL
   lh --session <id> ...     Resume an existing session
 
 Options:

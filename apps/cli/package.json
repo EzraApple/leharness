@@ -1,5 +1,5 @@
 {
-  "name": "@leharness/minimal-cli",
+  "name": "@leharness/cli",
   "version": "0.1.0",
   "private": true,
   "type": "module",
