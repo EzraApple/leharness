@@ -14,10 +14,15 @@ export interface HarnessDeps {
   maxOutputTokens?: number
 }
 
+export interface RunOptions {
+  signal?: AbortSignal
+}
+
 export async function runInvocation(
   sessionId: string,
   userText: string,
   deps: HarnessDeps,
+  options: RunOptions = {},
 ): Promise<TranscriptEntry[]> {
   const events: Event[] = await loadEvents(sessionId)
   const transcript: TranscriptEntry[] = eventsToTranscript(events)
@@ -32,7 +37,7 @@ export async function runInvocation(
 
   await emit("invocation.received", { text: userText })
 
-  const ctx: ToolContext = { sessionId }
+  const ctx: ToolContext = { sessionId, signal: options.signal }
   const harnessTools = deps.tools.map(toHarnessTool)
   const promptOptions: BuildPromptOptions = {
     model: deps.model,
@@ -43,10 +48,24 @@ export async function runInvocation(
 
   let stepNumber = 0
   while (true) {
+    if (options.signal?.aborted) {
+      await emit("agent.interrupted", { reason: "user_interrupt" })
+      return transcript
+    }
     stepNumber++
     await emit("step.started", { stepNumber })
     const request = buildPrompt(transcript, harnessTools, promptOptions)
-    const response = await deps.provider.call(request)
+    request.signal = options.signal
+    let response: Awaited<ReturnType<typeof deps.provider.call>>
+    try {
+      response = await deps.provider.call(request)
+    } catch (err) {
+      if (options.signal?.aborted) {
+        await emit("agent.interrupted", { reason: "user_interrupt" })
+        return transcript
+      }
+      throw err
+    }
     await emit("model.completed", {
       text: response.text,
       toolCalls: response.toolCalls,
@@ -57,8 +76,7 @@ export async function runInvocation(
       return transcript
     }
     await executeToolCalls(response.toolCalls, deps.tools, ctx, emit)
-    // TODO (2026-04-22): need user/Ctrl-C interrupt handling + max-step cap;
-    // right now the loop only breaks when the model produces no tool calls.
+    // TODO (2026-05-02): no max-step cap. Add a budget once we observe runaway loops.
   }
 }
 

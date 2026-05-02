@@ -86,10 +86,11 @@ export class OpenAICompatProvider implements Provider {
 
     let response: OpenAIChatCompletion
     try {
-      response = (await this.client.chat.completions.create(
-        body as never,
-      )) as unknown as OpenAIChatCompletion
+      response = (await this.client.chat.completions.create(body as never, {
+        signal: req.signal,
+      })) as unknown as OpenAIChatCompletion
     } catch (err) {
+      if (req.signal?.aborted) throw err
       const message = err instanceof Error ? err.message : String(err)
       throw new ProviderError(`${this.name} call failed: ${message}`, this.name, err)
     }

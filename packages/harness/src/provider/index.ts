@@ -22,6 +22,7 @@ export interface ProviderRequest {
   tools?: HarnessTool[]
   temperature?: number
   maxOutputTokens?: number
+  signal?: AbortSignal
 }
 
 export interface ProviderResponse {

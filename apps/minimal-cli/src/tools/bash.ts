@@ -13,7 +13,7 @@ export const bashTool: Tool<BashArgs> = {
   description:
     "Execute a shell command and return its combined stdout+stderr plus exit code. Blocking — waits for the command to finish. No timeout in MVP, so do not run interactive or long-running commands.",
   schema: bashArgs,
-  async execute(args, _ctx: ToolContext): Promise<ToolExecuteResult> {
+  async execute(args, ctx: ToolContext): Promise<ToolExecuteResult> {
     // TODO (2026-04-22): no timeout — interactive/long-running commands block the loop. Add a configurable timeout when the CLI can surface + approve long-running tool calls.
     // TODO (2026-04-22): stdout and stderr are concatenated post-exit. Interleaving them in chronological order needs a pty or per-chunk timestamps; not worth it yet.
     return new Promise<ToolExecuteResult>((resolve) => {
@@ -21,6 +21,7 @@ export const bashTool: Tool<BashArgs> = {
         cwd: process.cwd(),
         env: process.env,
         stdio: ["ignore", "pipe", "pipe"],
+        signal: ctx.signal,
       })
       const stdout: Buffer[] = []
       const stderr: Buffer[] = []

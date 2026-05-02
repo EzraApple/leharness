@@ -21,6 +21,8 @@ export function renderEvent(event: Event): string | null {
     }
     case "agent.finished":
       return `[done: ${event.reason as string}]`
+    case "agent.interrupted":
+      return `[interrupted: ${event.reason as string}]`
     default:
       return null
   }

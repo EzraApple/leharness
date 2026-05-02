@@ -100,7 +100,14 @@ export async function main(argv: string[]): Promise<number> {
 
 async function runAndRender(sessionId: string, prompt: string, deps: HarnessDeps): Promise<void> {
   const before = (await loadEvents(sessionId)).length
-  await runInvocation(sessionId, prompt, deps)
+  const controller = new AbortController()
+  const onSigint = () => controller.abort()
+  process.on("SIGINT", onSigint)
+  try {
+    await runInvocation(sessionId, prompt, deps, { signal: controller.signal })
+  } finally {
+    process.off("SIGINT", onSigint)
+  }
   const after = await loadEvents(sessionId)
   for (const event of after.slice(before)) {
     const line = renderEvent(event)

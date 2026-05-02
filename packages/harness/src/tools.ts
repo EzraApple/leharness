@@ -8,6 +8,7 @@ export interface ToolCall {
 
 export interface ToolContext {
   sessionId: string
+  signal?: AbortSignal
 }
 
 export type ToolExecuteResult = { kind: "ok"; output: string } | { kind: "error"; message: string }
@@ -79,6 +80,10 @@ export async function executeToolCalls(
   emit: Emit,
 ): Promise<void> {
   for (const call of calls) {
+    if (ctx.signal?.aborted) {
+      await emit("tool.failed", { call, error: "interrupted before execution" })
+      continue
+    }
     const result = await executeToolCall(call, tools, ctx)
     if (result.ok) await emit("tool.completed", { call, result: result.value })
     else await emit("tool.failed", { call, error: result.error })
