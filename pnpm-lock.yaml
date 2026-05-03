@@ -35,6 +35,10 @@ importers:
       zod:
         specifier: ^4.3.6
         version: 4.3.6
+    devDependencies:
+      esbuild:
+        specifier: ^0.27.2
+        version: 0.27.7
 
   packages/harness:
     dependencies:

@@ -48,7 +48,7 @@ The cleanest near-term shape is one public npm package:
 {
   "name": "leharness",
   "bin": {
-    "lh": "./dist/index.js"
+    "lh": "dist/index.js"
   }
 }
 ```
@@ -57,11 +57,11 @@ The repo can still keep a workspace split internally. Published users should
 not need `pnpm`, workspace aliases, or source compilation. The published package
 should contain built JavaScript and all runtime dependencies needed by `lh`.
 
-Current repo state to resolve before publishing:
+Repo state this implementation needs to avoid leaking into the published
+package:
 
 - The root package is named `leharness` but is marked `private: true`.
-- `apps/cli` is named `@leharness/cli`, marked `private: true`, and exposes both
-  `lh` and `leharness`.
+- `apps/cli` is named `@leharness/cli` and marked `private: true`.
 - `apps/cli` depends on `@leharness/harness` through `workspace:*`.
 - `packages/harness` is marked `private: true`.
 
@@ -76,6 +76,103 @@ for a standalone public CLI install unless either:
 Recommendation: publish one package named `leharness` that installs one binary
 named `lh`. Keep internal repo structure flexible until the project is more
 stable.
+
+## Implementation Plan
+
+Keep the repo's development workspace private, and generate the public package
+as a build artifact:
+
+1. `packages/harness` stays an internal workspace package for source layout and
+   local development.
+2. `apps/cli` builds a bundled Node entry point from `src/index.ts`; the bundle
+   includes the harness code so the published package does not depend on
+   `workspace:*`. Third-party runtime packages stay as normal npm
+   dependencies.
+3. `scripts/prepare-npm-package.mjs` writes a clean publish directory at
+   `dist/npm/leharness` with:
+
+   ```json
+   {
+     "name": "leharness",
+     "bin": {
+       "lh": "dist/index.js"
+     }
+   }
+   ```
+
+4. `npm pack` runs against `dist/npm/leharness`, not against the repo root or
+   the private workspace packages.
+5. A local smoke install verifies the generated tarball by installing it into a
+   temporary prefix and running `lh --help`.
+
+This keeps npm-facing package metadata small and avoids publishing
+`@leharness/cli` or `@leharness/harness` before those names are intentionally
+part of the public API.
+
+## Commands
+
+One-time dependency install:
+
+```bash
+pnpm install
+```
+
+Build the workspace:
+
+```bash
+pnpm build
+```
+
+Generate the npm package folder without creating a tarball:
+
+```bash
+pnpm package:prepare
+```
+
+Create the npm tarball:
+
+```bash
+pnpm package:pack
+```
+
+Verify the tarball by installing it into a temporary prefix and running
+`lh --help`:
+
+```bash
+pnpm package:verify
+```
+
+Optional manual global install from the local tarball:
+
+```bash
+npm install -g ./dist/npm/leharness-0.1.0.tgz
+lh --help
+```
+
+Check whether the current shell is authenticated to npm:
+
+```bash
+npm whoami
+```
+
+If not authenticated, start npm's login flow:
+
+```bash
+npm login
+```
+
+Publish after `pnpm package:verify` passes and npm auth is ready:
+
+```bash
+npm publish ./dist/npm/leharness --access public --tag latest
+```
+
+Confirm the registry has the published package:
+
+```bash
+npm view leharness version
+npx leharness@latest --help
+```
 
 ## First-Run Setup
 
