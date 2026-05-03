@@ -19,3 +19,5 @@ Index:
 
 - `001-mvp-core-harness.md` — initial CLI-first kernel: event log, reducer,
   loop, tool runtime, provider abstraction (OpenAI + Ollama), and a TUI on top.
+- `002-npm-cli-distribution.md` — npm package/name plan for publishing
+  `leharness` with the `lh` CLI command, first-run setup, and update story.
