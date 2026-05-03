@@ -12,6 +12,9 @@
     "knip": "knip",
     "lint": "biome check .",
     "format": "biome format --write .",
+    "package:prepare": "pnpm build && node scripts/prepare-npm-package.mjs",
+    "package:pack": "pnpm package:prepare && npm pack dist/npm/leharness --pack-destination dist/npm",
+    "package:verify": "pnpm package:pack && node scripts/verify-npm-package.mjs",
     "smoke": "pnpm -r build && node packages/harness/scripts/smoke.mjs"
   },
   "devDependencies": {

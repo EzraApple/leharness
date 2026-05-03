@@ -19,6 +19,85 @@ I mostly want to understand the parts that actually matter underneath modern har
 
 Also, the name exists because I dreamt up the project while I was in Paris.
 
+## CLI
+
+The CLI is experimental and published as `leharness` on npm. It installs one
+command: `lh`.
+
+Install globally:
+
+```bash
+npm install -g leharness
+lh --help
+```
+
+Run without installing:
+
+```bash
+npx leharness@latest --help
+```
+
+Update an existing global install:
+
+```bash
+npm install -g leharness@latest
+```
+
+Start an interactive session:
+
+```bash
+lh
+```
+
+Run one prompt and exit:
+
+```bash
+lh "summarize this repo"
+```
+
+Use OpenAI:
+
+```bash
+export OPENAI_API_KEY=...
+lh --provider openai
+```
+
+Use Ollama:
+
+```bash
+ollama pull gemma4:26b
+lh --provider ollama
+```
+
+Useful options:
+
+```bash
+lh --session <id>        # resume an existing session
+lh --provider openai     # choose openai or ollama
+lh --model <name>        # override the provider's default model
+lh --help                # print usage
+```
+
+Environment variables:
+
+```bash
+LEHARNESS_HOME=...             # override the session storage directory
+LEHARNESS_PROVIDER=openai      # set the default provider
+LEHARNESS_MODEL=gpt-4o-mini    # set the default model
+OPENAI_API_KEY=...             # required for OpenAI
+LEHARNESS_OLLAMA_BASE_URL=...  # override the Ollama OpenAI-compatible URL
+```
+
+Sessions are saved under `.leharness/sessions` in the current working directory
+unless `LEHARNESS_HOME` is set.
+
+For local package development:
+
+```bash
+pnpm install
+pnpm package:verify
+```
+
 ## Why
 
 Most of the interesting agent repos mix together:
