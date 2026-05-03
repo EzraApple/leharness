@@ -21,3 +21,5 @@ Index:
   PR kept the CLI-first kernel, event log, tool runtime, and provider
   abstraction, but simplified away the reducer/session/transcript layer and
   deferred TUI/product polish.
+- `002-npm-cli-distribution.md` — npm package/name plan for publishing
+  `leharness` with the `lh` CLI command, first-run setup, and update story.
