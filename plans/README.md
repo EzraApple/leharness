@@ -17,5 +17,7 @@ Convention:
 
 Index:
 
-- `001-mvp-core-harness.md` — initial CLI-first kernel: event log, reducer,
-  loop, tool runtime, provider abstraction (OpenAI + Ollama), and a TUI on top.
+- `001-mvp-core-harness.md` — historical MVP implementation plan. The final
+  PR kept the CLI-first kernel, event log, tool runtime, and provider
+  abstraction, but simplified away the reducer/session/transcript layer and
+  deferred TUI/product polish.

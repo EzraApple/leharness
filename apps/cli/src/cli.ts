@@ -23,8 +23,6 @@ export interface ParsedArgs {
   help?: boolean
 }
 
-const APP_SUBCOMMANDS = new Set(["cli", "repl"])
-
 export function parseArgs(argv: string[]): ParsedArgs {
   const out: ParsedArgs = { mode: "interactive" }
   let prompt: string | undefined
@@ -37,7 +35,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
     else if (arg === "--session" || arg === "-s") out.sessionId = argv[++i]
     else if (arg === "--provider" || arg === "-p") out.provider = argv[++i]
     else if (arg === "--model" || arg === "-m") out.model = argv[++i]
-    else if (APP_SUBCOMMANDS.has(arg)) sawAppSubcommand = true
+    else if (arg === "cli") sawAppSubcommand = true
     else if (!arg.startsWith("-") && prompt === undefined) prompt = arg
   }
 
@@ -134,11 +132,11 @@ async function runInteractive(
     renderer.replayHistory(prior)
   }
   const rl = readline.createInterface({ input: stdin, output: stdout })
-  const replPrompt = stdin.isTTY ? "> " : ""
+  const prompt = stdin.isTTY ? "> " : ""
   while (true) {
     let line: string
     try {
-      line = await rl.question(replPrompt)
+      line = await rl.question(prompt)
     } catch {
       break
     }
@@ -146,7 +144,7 @@ async function runInteractive(
     if (trimmed.length === 0) continue
     if (trimmed === "/exit" || trimmed === "/quit") break
     if (trimmed === "/help") {
-      process.stdout.write(replHelp())
+      process.stdout.write(cliHelp())
       continue
     }
     if (trimmed === "/clear") {
@@ -170,7 +168,7 @@ async function runInteractive(
   )
 }
 
-function replHelp(): string {
+function cliHelp(): string {
   return `commands:
   /help        show this help
   /clear       clear the screen

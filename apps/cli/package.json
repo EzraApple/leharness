@@ -5,8 +5,7 @@
   "type": "module",
   "main": "./dist/index.js",
   "bin": {
-    "lh": "./dist/index.js",
-    "leharness": "./dist/index.js"
+    "lh": "./dist/index.js"
   },
   "files": [
     "dist"
