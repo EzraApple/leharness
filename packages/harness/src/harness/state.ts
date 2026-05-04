@@ -11,7 +11,7 @@ interface InvocationOptions {
   onEvent?: (event: Event) => void
 }
 
-export type FinishReason = "no_tool_calls" | "max_steps" | "cancelled" | "model_failed"
+type FinishReason = "no_tool_calls" | "max_steps" | "cancelled" | "model_failed"
 
 export interface InvocationState {
   sessionId: string

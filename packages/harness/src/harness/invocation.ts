@@ -88,7 +88,6 @@ export async function runInvocation(
       await invocation.recordEvent("model.failed", { error: promptResult.error })
       return endInvocation(invocation, "model_failed")
     }
-    if (isCancelled(signal)) return endInvocation(invocation, "cancelled")
 
     await invocation.recordEvent("model.completed", {
       text: promptResult.response.text,
@@ -170,7 +169,8 @@ async function sendPrompt(
 ): Promise<PromptResult> {
   try {
     const request = buildRequest(prompt)
-    return { kind: "completed", response: await waitForProvider(provider.call(request), signal) }
+    const response = await waitForProvider(() => provider.call(request), signal)
+    return isCancelled(signal) ? { kind: "cancelled" } : { kind: "completed", response }
   } catch (err) {
     if (isProviderCancelled(err, signal)) return { kind: "cancelled" }
     return { kind: "failed", error: errorMessage(err) }
@@ -192,14 +192,14 @@ function isCancelled(signal: AbortSignal | undefined): boolean {
   return signal?.aborted === true
 }
 
-function waitForProvider<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
-  if (signal === undefined) return promise
+function waitForProvider<T>(call: () => Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (signal === undefined) return call()
   if (signal.aborted) return Promise.reject(new DOMException("Aborted", "AbortError"))
 
   return new Promise<T>((resolve, reject) => {
     const onAbort = () => reject(new DOMException("Aborted", "AbortError"))
     signal.addEventListener("abort", onAbort, { once: true })
-    promise.then(
+    call().then(
       (value) => {
         signal.removeEventListener("abort", onAbort)
         resolve(value)
