@@ -1,12 +1,19 @@
 import { compact } from "./compaction/index.js"
-import { appendEvent, type Event, loadEvents, newEventId, nowIso } from "./events.js"
+import {
+  appendEvent,
+  type Event,
+  loadEvents,
+  newEventId,
+  nowIso,
+  type RecordEvent,
+} from "./events.js"
 import {
   buildInput,
   buildRequest,
   type CompactionOptions,
   DEFAULT_SYSTEM_PROMPT,
 } from "./prompt.js"
-import type { Provider } from "./provider/index.js"
+import type { Provider, ProviderRequest, ProviderResponse } from "./provider/index.js"
 import {
   createLoadSkillTool,
   discoverSkills,
@@ -38,6 +45,13 @@ export interface RunOptions {
 
 const DEFAULT_MAX_STEPS = 25
 
+interface PromptSurface {
+  system: string
+  tools: Tool[]
+}
+
+type ModelCallResult = { status: "completed"; response: ProviderResponse } | { status: "finished" }
+
 export async function runInvocation(
   sessionId: string,
   userText: string,
@@ -56,22 +70,16 @@ export async function runInvocation(
     skills,
   } = deps
   const events: Event[] = await loadEvents(sessionId)
-
-  const recordEvent = async (type: string, payload: Record<string, unknown>) => {
-    const event: Event = { v: 1, id: newEventId(), ts: nowIso(), type, ...payload }
-    events.push(event)
-    await appendEvent(sessionId, event)
-    options.onEvent?.(event)
-    return event
-  }
+  const recordEvent = createEventRecorder(sessionId, events, options)
+  const signal = options.signal
 
   await recordEvent("invocation.received", { text: userText })
 
-  const ctx: ToolContext = { sessionId, recordEvent, signal: options.signal }
+  const ctx: ToolContext = { sessionId, recordEvent, signal }
 
   let stepNumber = 0
   while (true) {
-    if (await finishIfCancelled(recordEvent, options.signal)) return events
+    if (await finishIfCancelled(recordEvent, signal)) return events
     if (stepNumber >= maxSteps) {
       await recordEvent("agent.finished", { reason: "max_steps", maxSteps })
       return events
@@ -79,83 +87,139 @@ export async function runInvocation(
 
     stepNumber++
     await recordEvent("step.started", { stepNumber })
-    const skillConfig = skills === false ? undefined : skills
-    let promptTools = tools
-    let system = systemPrompt ?? DEFAULT_SYSTEM_PROMPT
-    if (skillOptionsEnabled(skills)) {
-      const discoveredSkills = await discoverSkills(skillConfig?.root)
-      if (discoveredSkills.length > 0) {
-        const catalog = renderSkillCatalog(discoveredSkills, {
-          budgetChars: skillConfig?.catalogBudgetChars,
-          includePaths: skillConfig?.includePaths,
-          queryText: userText,
-          recentSkillNames: recentLoadedSkillNames(events),
-        })
-        system = withSkillCatalog(system, catalog)
-        promptTools = [
-          createLoadSkillTool({
-            root: skillConfig?.root,
-            maxSkillBytes: skillConfig?.maxSkillBytes,
-          }),
-          ...tools.filter((tool) => tool.name !== "load_skill"),
-        ]
-      }
-    }
+    const promptSurface = await preparePromptSurface({
+      baseSystem: systemPrompt ?? DEFAULT_SYSTEM_PROMPT,
+      events,
+      skills,
+      tools,
+      userText,
+    })
     const input = await compact(
-      buildInput(events, promptTools, {
+      buildInput(events, promptSurface.tools, {
         sessionId,
         provider,
         model,
-        system,
+        system: promptSurface.system,
         temperature,
         maxOutputTokens,
         onText: options.onText,
-        signal: options.signal,
+        signal,
         compaction,
         recordEvent,
       }),
     )
-    const request = buildRequest(input)
-    if (await finishIfCancelled(recordEvent, options.signal)) return events
+    const modelCall = await callModel(provider, buildRequest(input), recordEvent, signal)
+    if (modelCall.status === "finished") return events
 
-    let response: Awaited<ReturnType<Provider["call"]>>
-    try {
-      response = await abortable(provider.call(request), options.signal)
-    } catch (err) {
-      if (isAbortError(err) || options.signal?.aborted) {
-        await recordEvent("agent.finished", { reason: "cancelled" })
-        return events
-      }
-      await recordEvent("model.failed", { error: errorMessage(err) })
-      await recordEvent("agent.finished", { reason: "model_failed" })
-      return events
-    }
-
-    if (await finishIfCancelled(recordEvent, options.signal)) return events
-    await recordEvent("model.completed", {
-      text: response.text,
-      toolCalls: response.toolCalls,
-      usage: response.usage,
-    })
+    const { response } = modelCall
+    if (await finishIfCancelled(recordEvent, signal)) return events
+    await recordModelCompleted(response, recordEvent)
     if (response.toolCalls.length === 0) {
       await recordEvent("agent.finished", { reason: "no_tool_calls" })
       return events
     }
-    if (await finishIfCancelled(recordEvent, options.signal)) return events
-    const toolResults = await executeToolCalls(response.toolCalls, promptTools, ctx)
-    for (const result of toolResults) {
-      if (result.ok) {
-        await recordEvent("tool.completed", { call: result.call, result: result.value })
-      } else {
-        await recordEvent("tool.failed", { call: result.call, error: result.error })
-      }
+
+    if (await finishIfCancelled(recordEvent, signal)) return events
+    await recordToolResults(response.toolCalls, promptSurface.tools, ctx, recordEvent)
+    if (await finishIfCancelled(recordEvent, signal)) return events
+  }
+}
+
+function createEventRecorder(sessionId: string, events: Event[], options: RunOptions): RecordEvent {
+  return async (type: string, payload: Record<string, unknown>) => {
+    const event: Event = { v: 1, id: newEventId(), ts: nowIso(), type, ...payload }
+    events.push(event)
+    await appendEvent(sessionId, event)
+    options.onEvent?.(event)
+    return event
+  }
+}
+
+async function preparePromptSurface(options: {
+  baseSystem: string
+  events: Event[]
+  skills: SkillOptions | false | undefined
+  tools: Tool[]
+  userText: string
+}): Promise<PromptSurface> {
+  const skillConfig = options.skills === false ? undefined : options.skills
+  if (!skillOptionsEnabled(options.skills)) {
+    return { system: options.baseSystem, tools: options.tools }
+  }
+
+  const discoveredSkills = await discoverSkills(skillConfig?.root)
+  if (discoveredSkills.length === 0) return { system: options.baseSystem, tools: options.tools }
+
+  const catalog = renderSkillCatalog(discoveredSkills, {
+    budgetChars: skillConfig?.catalogBudgetChars,
+    includePaths: skillConfig?.includePaths,
+    queryText: options.userText,
+    recentSkillNames: recentLoadedSkillNames(options.events),
+  })
+  return {
+    system: withSkillCatalog(options.baseSystem, catalog),
+    tools: [
+      createLoadSkillTool({
+        root: skillConfig?.root,
+        maxSkillBytes: skillConfig?.maxSkillBytes,
+      }),
+      ...options.tools.filter((tool) => tool.name !== "load_skill"),
+    ],
+  }
+}
+
+async function callModel(
+  provider: Provider,
+  request: ProviderRequest,
+  recordEvent: RecordEvent,
+  signal: AbortSignal | undefined,
+): Promise<ModelCallResult> {
+  if (await finishIfCancelled(recordEvent, signal)) return { status: "finished" }
+
+  try {
+    const response = await abortable(provider.call(request), signal)
+    return { status: "completed", response }
+  } catch (err) {
+    if (isAbortError(err) || signal?.aborted) {
+      await recordEvent("agent.finished", { reason: "cancelled" })
+      return { status: "finished" }
     }
-    if (await finishIfCancelled(recordEvent, options.signal)) return events
+
+    await recordEvent("model.failed", { error: errorMessage(err) })
+    await recordEvent("agent.finished", { reason: "model_failed" })
+    return { status: "finished" }
+  }
+}
+
+async function recordModelCompleted(
+  response: ProviderResponse,
+  recordEvent: RecordEvent,
+): Promise<void> {
+  await recordEvent("model.completed", {
+    text: response.text,
+    toolCalls: response.toolCalls,
+    usage: response.usage,
+  })
+}
+
+async function recordToolResults(
+  calls: ProviderResponse["toolCalls"],
+  tools: Tool[],
+  ctx: ToolContext,
+  recordEvent: RecordEvent,
+): Promise<void> {
+  const toolResults = await executeToolCalls(calls, tools, ctx)
+  for (const result of toolResults) {
+    if (result.ok) {
+      await recordEvent("tool.completed", { call: result.call, result: result.value })
+    } else {
+      await recordEvent("tool.failed", { call: result.call, error: result.error })
+    }
   }
 }
 
 async function finishIfCancelled(
-  recordEvent: (type: string, payload: Record<string, unknown>) => Promise<Event>,
+  recordEvent: RecordEvent,
   signal: AbortSignal | undefined,
 ): Promise<boolean> {
   if (signal?.aborted !== true) return false
