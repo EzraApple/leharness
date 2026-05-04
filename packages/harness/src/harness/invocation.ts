@@ -10,7 +10,6 @@ import {
   type ToolContext,
   type ToolResult,
 } from "../tools.js"
-import { abortable, errorMessage, isAbort, isCancelled } from "./abort.js"
 import { buildPromptSurface } from "./prompt-surface.js"
 import { endInvocation, loadInvocationState } from "./state.js"
 
@@ -133,9 +132,9 @@ async function sendPrompt(
   signal: AbortSignal | undefined,
 ): Promise<PromptResult> {
   try {
-    return { kind: "completed", response: await abortable(provider.call(request), signal) }
+    return { kind: "completed", response: await waitForProvider(provider.call(request), signal) }
   } catch (err) {
-    if (isAbort(err, signal)) return { kind: "cancelled" }
+    if (isProviderCancelled(err, signal)) return { kind: "cancelled" }
     return { kind: "failed", error: errorMessage(err) }
   }
 }
@@ -149,4 +148,36 @@ async function executeTools(calls: ToolCall[], tools: Tool[], ctx: ToolContext):
   }
 
   return isCancelled(ctx.signal) ? { kind: "cancelled", results } : { kind: "completed", results }
+}
+
+function isCancelled(signal: AbortSignal | undefined): boolean {
+  return signal?.aborted === true
+}
+
+function waitForProvider<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (signal === undefined) return promise
+  if (signal.aborted) return Promise.reject(new DOMException("Aborted", "AbortError"))
+
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(new DOMException("Aborted", "AbortError"))
+    signal.addEventListener("abort", onAbort, { once: true })
+    promise.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort)
+        resolve(value)
+      },
+      (err: unknown) => {
+        signal.removeEventListener("abort", onAbort)
+        reject(err)
+      },
+    )
+  })
+}
+
+function isProviderCancelled(err: unknown, signal: AbortSignal | undefined): boolean {
+  return signal?.aborted === true || (err instanceof DOMException && err.name === "AbortError")
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
 }
