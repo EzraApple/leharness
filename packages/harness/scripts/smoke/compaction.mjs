@@ -24,7 +24,7 @@ process.env.LEHARNESS_HOME = tmp
 
 const longPriorText =
   "very long prior context ".repeat(20) +
-  "packages/harness/src/harness.ts packages/harness/src/prompt.ts"
+  "packages/harness/src/harness/index.ts packages/harness/src/prompt.ts"
 
 const responses = [
   {

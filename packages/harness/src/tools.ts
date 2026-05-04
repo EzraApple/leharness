@@ -10,6 +10,7 @@ export interface ToolCall {
 export interface ToolContext {
   sessionId: string
   recordEvent?: RecordEvent
+  signal?: AbortSignal
 }
 
 export type ToolExecuteResult = { kind: "ok"; output: string } | { kind: "error"; message: string }
@@ -78,6 +79,9 @@ export async function executeToolCalls(
   ctx: ToolContext,
 ): Promise<ToolResult[]> {
   const results: ToolResult[] = []
-  for (const call of calls) results.push(await executeToolCall(call, tools, ctx))
+  for (const call of calls) {
+    if (ctx.signal?.aborted) break
+    results.push(await executeToolCall(call, tools, ctx))
+  }
   return results
 }

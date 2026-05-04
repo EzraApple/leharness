@@ -19,6 +19,7 @@ export interface ProviderRequest {
   temperature?: number
   maxOutputTokens?: number
   onText?: (delta: string) => void
+  signal?: AbortSignal
 }
 
 export interface ProviderResponse {
