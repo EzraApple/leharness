@@ -23,3 +23,5 @@ Index:
   deferred TUI/product polish.
 - `002-npm-cli-distribution.md` — npm package/name plan for publishing
   `leharness` with the `lh` CLI command, first-run setup, and update story.
+- `003-first-class-skills.md` — plan for workspace skill discovery, compact
+  skill catalogs, `load_skill`, hot reload, and smoke coverage.

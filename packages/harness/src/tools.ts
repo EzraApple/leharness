@@ -1,4 +1,5 @@
 import type { ZodTypeAny } from "zod"
+import type { RecordEvent } from "./events.js"
 
 export interface ToolCall {
   id: string
@@ -8,6 +9,7 @@ export interface ToolCall {
 
 export interface ToolContext {
   sessionId: string
+  recordEvent?: RecordEvent
 }
 
 export type ToolExecuteResult = { kind: "ok"; output: string } | { kind: "error"; message: string }

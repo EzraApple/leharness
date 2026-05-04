@@ -7,6 +7,15 @@ import {
   DEFAULT_SYSTEM_PROMPT,
 } from "./prompt.js"
 import type { Provider } from "./provider/index.js"
+import {
+  createLoadSkillTool,
+  discoverSkills,
+  recentLoadedSkillNames,
+  renderSkillCatalog,
+  type SkillOptions,
+  skillOptionsEnabled,
+  withSkillCatalog,
+} from "./skills.js"
 import { executeToolCalls, type Tool, type ToolContext } from "./tools.js"
 
 export interface HarnessDeps {
@@ -17,6 +26,7 @@ export interface HarnessDeps {
   temperature?: number
   maxOutputTokens?: number
   compaction?: CompactionOptions
+  skills?: SkillOptions | false
 }
 
 export interface RunOptions {
@@ -34,7 +44,8 @@ export async function runInvocation(
   deps: HarnessDeps,
   options: RunOptions = {},
 ): Promise<Event[]> {
-  const { provider, tools, model, systemPrompt, temperature, maxOutputTokens, compaction } = deps
+  const { provider, tools, model, systemPrompt, temperature, maxOutputTokens, compaction, skills } =
+    deps
   const events: Event[] = await loadEvents(sessionId)
 
   const recordEvent = async (type: string, payload: Record<string, unknown>) => {
@@ -47,18 +58,40 @@ export async function runInvocation(
 
   await recordEvent("invocation.received", { text: userText })
 
-  const ctx: ToolContext = { sessionId }
+  const ctx: ToolContext = { sessionId, recordEvent }
 
   let stepNumber = 0
   while (true) {
     stepNumber++
     await recordEvent("step.started", { stepNumber })
+    const skillConfig = skills === false ? undefined : skills
+    let promptTools = tools
+    let system = systemPrompt ?? DEFAULT_SYSTEM_PROMPT
+    if (skillOptionsEnabled(skills)) {
+      const discoveredSkills = await discoverSkills(skillConfig?.root)
+      if (discoveredSkills.length > 0) {
+        const catalog = renderSkillCatalog(discoveredSkills, {
+          budgetChars: skillConfig?.catalogBudgetChars,
+          includePaths: skillConfig?.includePaths,
+          queryText: userText,
+          recentSkillNames: recentLoadedSkillNames(events),
+        })
+        system = withSkillCatalog(system, catalog)
+        promptTools = [
+          createLoadSkillTool({
+            root: skillConfig?.root,
+            maxSkillBytes: skillConfig?.maxSkillBytes,
+          }),
+          ...tools.filter((tool) => tool.name !== "load_skill"),
+        ]
+      }
+    }
     const input = await compact(
-      buildInput(events, tools, {
+      buildInput(events, promptTools, {
         sessionId,
         provider,
         model,
-        system: systemPrompt ?? DEFAULT_SYSTEM_PROMPT,
+        system,
         temperature,
         maxOutputTokens,
         onText: options.onText,
@@ -77,7 +110,7 @@ export async function runInvocation(
       await recordEvent("agent.finished", { reason: "no_tool_calls" })
       return events
     }
-    const toolResults = await executeToolCalls(response.toolCalls, tools, ctx)
+    const toolResults = await executeToolCalls(response.toolCalls, promptTools, ctx)
     for (const result of toolResults) {
       if (result.ok) {
         await recordEvent("tool.completed", { call: result.call, result: result.value })

@@ -1,7 +1,9 @@
 import { type ZodTypeAny, z } from "zod"
-import type { Event } from "./events.js"
+import type { Event, RecordEvent } from "./events.js"
 import type { HarnessMessage, HarnessTool, Provider, ProviderRequest } from "./provider/index.js"
 import type { Tool, ToolCall } from "./tools.js"
+
+export type { RecordEvent } from "./events.js"
 
 export const DEFAULT_SYSTEM_PROMPT =
   "You are a helpful coding assistant operating inside a harness. You have access to tools when provided. Call tools when you need information or actions; respond directly when you have what you need. Stop calling tools when the task is complete and reply with a short summary."
@@ -18,8 +20,6 @@ export interface CompactionOptions {
   maxInputChars?: number
   preserveRecentMessages?: number
 }
-
-export type RecordEvent = (type: string, payload: Record<string, unknown>) => Promise<Event>
 
 export interface PromptInput extends BuildPromptOptions {
   events: Event[]
