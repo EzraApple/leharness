@@ -17,6 +17,7 @@ await smokeMaxSteps()
 await smokeModelFailure()
 await smokePreCancelled()
 await smokeCancelDuringProvider()
+await smokeCancelBetweenTools()
 
 console.log("\nsmoke-invocation-control: SUCCESS")
 
@@ -145,4 +146,64 @@ async function smokeCancelDuringProvider() {
     !persisted.some((event) => event.type === "model.completed"),
     "in-flight cancellation should not append model.completed",
   )
+}
+
+async function smokeCancelBetweenTools() {
+  const controller = new AbortController()
+  let secondToolRan = false
+  const provider = {
+    name: "tool-cancel-fake",
+    async call() {
+      return {
+        text: "running tools",
+        toolCalls: [
+          { id: "call_cancel", name: "cancel_after_me", args: {} },
+          { id: "call_skip", name: "should_not_run", args: {} },
+        ],
+        stopReason: "tool_calls",
+      }
+    },
+  }
+  const tools = [
+    {
+      name: "cancel_after_me",
+      description: "cancel after this tool runs",
+      schema: { safeParse: () => ({ success: true, data: {} }) },
+      async execute() {
+        controller.abort()
+        return { kind: "ok", output: "cancelled" }
+      },
+    },
+    {
+      name: "should_not_run",
+      description: "must be skipped after cancellation",
+      schema: { safeParse: () => ({ success: true, data: {} }) },
+      async execute() {
+        secondToolRan = true
+        return { kind: "ok", output: "bad" }
+      },
+    },
+  ]
+
+  const events = await runInvocation(
+    "smoke-cancel-between-tools",
+    "cancel between tools",
+    { provider, tools, model: "fake" },
+    { signal: controller.signal },
+  )
+
+  const eventTypes = events.map((event) => event.type)
+  assert(!secondToolRan, "aborted tool batch should not run later tool calls")
+  assert(
+    JSON.stringify(eventTypes) ===
+      JSON.stringify([
+        "invocation.received",
+        "step.started",
+        "model.completed",
+        "tool.completed",
+        "agent.finished",
+      ]),
+    `cancel-between-tools event types mismatch: ${JSON.stringify(eventTypes)}`,
+  )
+  assert(events.at(-1)?.reason === "cancelled", "tool batch cancellation should finish cancelled")
 }

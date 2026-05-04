@@ -16,7 +16,7 @@ interface PromptSurface {
   tools: Tool[]
 }
 
-export async function preparePromptSurface(options: {
+export async function buildPromptSurface(options: {
   events: Event[]
   skills: SkillOptions | false | undefined
   systemPrompt: string | undefined
