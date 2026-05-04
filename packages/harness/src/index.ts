@@ -1,6 +1,6 @@
 export * from "./compaction/index.js"
 export * from "./events.js"
-export * from "./harness.js"
+export * from "./harness/index.js"
 export * from "./prompt.js"
 export * from "./provider/index.js"
 export * from "./provider/ollama.js"
