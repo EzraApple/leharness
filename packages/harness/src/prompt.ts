@@ -14,6 +14,7 @@ export interface BuildPromptOptions {
   temperature?: number
   maxOutputTokens?: number
   onText?: (delta: string) => void
+  signal?: AbortSignal
 }
 
 export interface CompactionOptions {
@@ -64,6 +65,7 @@ export function buildInput(
     temperature: options.temperature,
     maxOutputTokens: options.maxOutputTokens,
     onText: options.onText,
+    signal: options.signal,
     sessionId: options.sessionId,
     provider: options.provider,
     compaction: options.compaction,
@@ -80,6 +82,7 @@ export function buildRequest(input: PromptInput): ProviderRequest {
     temperature: input.temperature,
     maxOutputTokens: input.maxOutputTokens,
     onText: input.onText,
+    signal: input.signal,
   }
 }
 

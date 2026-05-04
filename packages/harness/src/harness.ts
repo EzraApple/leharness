@@ -25,6 +25,7 @@ export interface HarnessDeps {
   systemPrompt?: string
   temperature?: number
   maxOutputTokens?: number
+  maxSteps?: number
   compaction?: CompactionOptions
   skills?: SkillOptions | false
 }
@@ -32,11 +33,10 @@ export interface HarnessDeps {
 export interface RunOptions {
   onText?: (delta: string) => void
   onEvent?: (event: Event) => void
+  signal?: AbortSignal
 }
 
-// TODO (2026-05-02): no max-step cap and no in-turn interrupt. For now Ctrl-C
-// kills the process; resume picks up from the last persisted event. Add a step
-// budget and an Escape-to-abort path once we feel them missing.
+const DEFAULT_MAX_STEPS = 25
 
 export async function runInvocation(
   sessionId: string,
@@ -44,8 +44,17 @@ export async function runInvocation(
   deps: HarnessDeps,
   options: RunOptions = {},
 ): Promise<Event[]> {
-  const { provider, tools, model, systemPrompt, temperature, maxOutputTokens, compaction, skills } =
-    deps
+  const {
+    provider,
+    tools,
+    model,
+    systemPrompt,
+    temperature,
+    maxOutputTokens,
+    maxSteps = DEFAULT_MAX_STEPS,
+    compaction,
+    skills,
+  } = deps
   const events: Event[] = await loadEvents(sessionId)
 
   const recordEvent = async (type: string, payload: Record<string, unknown>) => {
@@ -58,10 +67,16 @@ export async function runInvocation(
 
   await recordEvent("invocation.received", { text: userText })
 
-  const ctx: ToolContext = { sessionId, recordEvent }
+  const ctx: ToolContext = { sessionId, recordEvent, signal: options.signal }
 
   let stepNumber = 0
   while (true) {
+    if (await finishIfCancelled(recordEvent, options.signal)) return events
+    if (stepNumber >= maxSteps) {
+      await recordEvent("agent.finished", { reason: "max_steps", maxSteps })
+      return events
+    }
+
     stepNumber++
     await recordEvent("step.started", { stepNumber })
     const skillConfig = skills === false ? undefined : skills
@@ -95,12 +110,28 @@ export async function runInvocation(
         temperature,
         maxOutputTokens,
         onText: options.onText,
+        signal: options.signal,
         compaction,
         recordEvent,
       }),
     )
     const request = buildRequest(input)
-    const response = await provider.call(request)
+    if (await finishIfCancelled(recordEvent, options.signal)) return events
+
+    let response: Awaited<ReturnType<Provider["call"]>>
+    try {
+      response = await abortable(provider.call(request), options.signal)
+    } catch (err) {
+      if (isAbortError(err) || options.signal?.aborted) {
+        await recordEvent("agent.finished", { reason: "cancelled" })
+        return events
+      }
+      await recordEvent("model.failed", { error: errorMessage(err) })
+      await recordEvent("agent.finished", { reason: "model_failed" })
+      return events
+    }
+
+    if (await finishIfCancelled(recordEvent, options.signal)) return events
     await recordEvent("model.completed", {
       text: response.text,
       toolCalls: response.toolCalls,
@@ -110,6 +141,7 @@ export async function runInvocation(
       await recordEvent("agent.finished", { reason: "no_tool_calls" })
       return events
     }
+    if (await finishIfCancelled(recordEvent, options.signal)) return events
     const toolResults = await executeToolCalls(response.toolCalls, promptTools, ctx)
     for (const result of toolResults) {
       if (result.ok) {
@@ -118,5 +150,43 @@ export async function runInvocation(
         await recordEvent("tool.failed", { call: result.call, error: result.error })
       }
     }
+    if (await finishIfCancelled(recordEvent, options.signal)) return events
   }
+}
+
+async function finishIfCancelled(
+  recordEvent: (type: string, payload: Record<string, unknown>) => Promise<Event>,
+  signal: AbortSignal | undefined,
+): Promise<boolean> {
+  if (signal?.aborted !== true) return false
+  await recordEvent("agent.finished", { reason: "cancelled" })
+  return true
+}
+
+function abortable<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (signal === undefined) return promise
+  if (signal.aborted) return Promise.reject(new DOMException("Aborted", "AbortError"))
+
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(new DOMException("Aborted", "AbortError"))
+    signal.addEventListener("abort", onAbort, { once: true })
+    promise.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort)
+        resolve(value)
+      },
+      (err: unknown) => {
+        signal.removeEventListener("abort", onAbort)
+        reject(err)
+      },
+    )
+  })
+}
+
+function isAbortError(err: unknown): boolean {
+  return err instanceof DOMException && err.name === "AbortError"
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
 }

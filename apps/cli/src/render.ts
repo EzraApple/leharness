@@ -54,8 +54,12 @@ export class LiveRenderer {
       case "tool.failed":
         this.renderToolError(event.error as string)
         break
+      case "model.failed":
+        this.renderModelError(event.error as string)
+        break
       case "agent.finished":
         this.endAssistantLine()
+        this.renderTerminalReason(event.reason as string)
         this.out.write("\n")
         break
     }
@@ -83,6 +87,9 @@ export class LiveRenderer {
         case "tool.failed":
           this.renderToolError(event.error as string)
           break
+        case "model.failed":
+          this.renderModelError(event.error as string)
+          break
       }
     }
     this.out.write(`${dim("---")}\n\n`)
@@ -101,6 +108,16 @@ export class LiveRenderer {
 
   private renderToolError(error: string): void {
     this.out.write(`${red(`✗ ${error}`)}\n`)
+  }
+
+  private renderModelError(error: string): void {
+    this.out.write(`${red(`✗ model failed: ${error}`)}\n`)
+  }
+
+  private renderTerminalReason(reason: string | undefined): void {
+    if (reason === "cancelled") this.out.write(`${dim("cancelled")}\n`)
+    if (reason === "max_steps") this.out.write(`${dim("stopped: max steps reached")}\n`)
+    if (reason === "model_failed") this.out.write(`${dim("stopped: model failed")}\n`)
   }
 
   private endAssistantLine(): void {
