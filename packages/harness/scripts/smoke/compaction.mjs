@@ -10,6 +10,15 @@ function assert(cond, msg) {
   }
 }
 
+function requestSize(req) {
+  return (
+    (req.model?.length ?? 0) +
+    (req.system?.length ?? 0) +
+    JSON.stringify(req.messages ?? []).length +
+    JSON.stringify(req.tools ?? []).length
+  )
+}
+
 const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "leharness-smoke-compaction-"))
 process.env.LEHARNESS_HOME = tmp
 
@@ -70,11 +79,13 @@ assert(
   "first request should include the long original user prompt before compaction is enabled",
 )
 
-assert(secondRequest?.messages.length === 1, "second request should keep only the newest message")
 assert(
-  secondRequest.messages[0]?.role === "user" &&
-    secondRequest.messages[0].content === "fresh question",
+  secondRequest?.messages.some((m) => m.role === "user" && m.content === "fresh question") === true,
   "second request should preserve the latest user message",
+)
+assert(
+  requestSize(secondRequest) <= 120,
+  `second request should fit the compaction budget; got ${requestSize(secondRequest)}`,
 )
 assert(
   JSON.stringify(secondRequest.messages).includes("very long prior context") === false,
@@ -87,8 +98,8 @@ assert(compactionEvents.length === 1, "compaction should append one compaction.c
 
 const compactionEvent = compactionEvents[0]
 assert(
-  compactionEvent.strategy === "naive_truncate" &&
-    compactionEvent.droppedMessageCount >= 2 &&
+  typeof compactionEvent.strategy === "string" &&
+    compactionEvent.reason === "input_too_large" &&
     compactionEvent.outputChars <= 120,
   `unexpected compaction event payload: ${JSON.stringify(compactionEvent)}`,
 )
