@@ -1,5 +1,11 @@
+import { compact } from "./compaction/index.js"
 import { appendEvent, type Event, loadEvents, newEventId, nowIso } from "./events.js"
-import { buildPrompt, DEFAULT_SYSTEM_PROMPT } from "./prompt.js"
+import {
+  buildInput,
+  buildRequest,
+  type CompactionOptions,
+  DEFAULT_SYSTEM_PROMPT,
+} from "./prompt.js"
 import type { Provider } from "./provider/index.js"
 import { executeToolCalls, type Tool, type ToolContext } from "./tools.js"
 
@@ -10,6 +16,7 @@ export interface HarnessDeps {
   systemPrompt?: string
   temperature?: number
   maxOutputTokens?: number
+  compaction?: CompactionOptions
 }
 
 export interface RunOptions {
@@ -27,7 +34,7 @@ export async function runInvocation(
   deps: HarnessDeps,
   options: RunOptions = {},
 ): Promise<Event[]> {
-  const { provider, tools, model, systemPrompt, temperature, maxOutputTokens } = deps
+  const { provider, tools, model, systemPrompt, temperature, maxOutputTokens, compaction } = deps
   const events: Event[] = await loadEvents(sessionId)
 
   const recordEvent = async (type: string, payload: Record<string, unknown>) => {
@@ -35,6 +42,7 @@ export async function runInvocation(
     events.push(event)
     await appendEvent(sessionId, event)
     options.onEvent?.(event)
+    return event
   }
 
   await recordEvent("invocation.received", { text: userText })
@@ -45,13 +53,20 @@ export async function runInvocation(
   while (true) {
     stepNumber++
     await recordEvent("step.started", { stepNumber })
-    const request = buildPrompt(events, tools, {
-      model,
-      system: systemPrompt ?? DEFAULT_SYSTEM_PROMPT,
-      temperature,
-      maxOutputTokens,
-      onText: options.onText,
-    })
+    const input = await compact(
+      buildInput(events, tools, {
+        sessionId,
+        provider,
+        model,
+        system: systemPrompt ?? DEFAULT_SYSTEM_PROMPT,
+        temperature,
+        maxOutputTokens,
+        onText: options.onText,
+        compaction,
+        recordEvent,
+      }),
+    )
+    const request = buildRequest(input)
     const response = await provider.call(request)
     await recordEvent("model.completed", {
       text: response.text,

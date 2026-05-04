@@ -1,6 +1,6 @@
 import { type ZodTypeAny, z } from "zod"
 import type { Event } from "./events.js"
-import type { HarnessMessage, HarnessTool, ProviderRequest } from "./provider/index.js"
+import type { HarnessMessage, HarnessTool, Provider, ProviderRequest } from "./provider/index.js"
 import type { Tool, ToolCall } from "./tools.js"
 
 export const DEFAULT_SYSTEM_PROMPT =
@@ -14,11 +14,41 @@ export interface BuildPromptOptions {
   onText?: (delta: string) => void
 }
 
+export interface CompactionOptions {
+  maxInputChars?: number
+  preserveRecentMessages?: number
+}
+
+export type RecordEvent = (type: string, payload: Record<string, unknown>) => Promise<Event>
+
+export interface PromptInput extends BuildPromptOptions {
+  events: Event[]
+  messages: HarnessMessage[]
+  tools?: HarnessTool[]
+  sessionId?: string
+  provider?: Provider
+  compaction?: CompactionOptions
+  recordEvent?: RecordEvent
+}
+
 export function buildPrompt(
   events: Event[],
   tools: Tool[],
   options: BuildPromptOptions,
 ): ProviderRequest {
+  return buildRequest(buildInput(events, tools, options))
+}
+
+export function buildInput(
+  events: Event[],
+  tools: Tool[],
+  options: BuildPromptOptions & {
+    sessionId?: string
+    provider?: Provider
+    compaction?: CompactionOptions
+    recordEvent?: RecordEvent
+  },
+): PromptInput {
   const messages: HarnessMessage[] = []
   for (const event of events) {
     const message = eventToMessage(event)
@@ -26,13 +56,30 @@ export function buildPrompt(
   }
 
   return {
-    model: options.model,
-    system: options.system,
+    events,
     messages,
     tools: tools.length > 0 ? tools.map(toHarnessTool) : undefined,
+    model: options.model,
+    system: options.system,
     temperature: options.temperature,
     maxOutputTokens: options.maxOutputTokens,
     onText: options.onText,
+    sessionId: options.sessionId,
+    provider: options.provider,
+    compaction: options.compaction,
+    recordEvent: options.recordEvent,
+  }
+}
+
+export function buildRequest(input: PromptInput): ProviderRequest {
+  return {
+    model: input.model,
+    system: input.system,
+    messages: input.messages,
+    tools: input.tools,
+    temperature: input.temperature,
+    maxOutputTokens: input.maxOutputTokens,
+    onText: input.onText,
   }
 }
 
