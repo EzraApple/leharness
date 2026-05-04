@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs"
 import * as path from "node:path"
 import { stdin, stdout } from "node:process"
 import * as readline from "node:readline/promises"
@@ -13,6 +14,8 @@ import {
 import { ulid } from "ulid"
 import { LiveRenderer } from "./render.js"
 import { builtinTools } from "./tools/index.js"
+
+const cliVersion = readCliVersion()
 
 export interface ParsedArgs {
   mode: "one_shot" | "interactive"
@@ -179,7 +182,7 @@ function cliHelp(): string {
 
 function printUsage(): void {
   process.stdout.write(
-    `lh - launcher for leharness apps
+    `lh ${cliVersion} - launcher for leharness apps
 
 Usage:
   lh                        Start the interactive cli (default)
@@ -201,4 +204,16 @@ Environment:
   LEHARNESS_OLLAMA_BASE_URL Override Ollama endpoint (default http://localhost:11434/v1)
 `,
   )
+}
+
+function readCliVersion(): string {
+  try {
+    const packageJson = JSON.parse(
+      readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+    ) as { version?: unknown }
+    if (typeof packageJson.version === "string") return packageJson.version
+  } catch {
+    // Keep --help available even when running from an unusual build layout.
+  }
+  return "unknown"
 }
