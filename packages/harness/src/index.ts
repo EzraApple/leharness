@@ -1,3 +1,4 @@
+export * from "./compaction/index.js"
 export * from "./events.js"
 export * from "./harness.js"
 export * from "./prompt.js"
