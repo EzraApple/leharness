@@ -30,7 +30,15 @@ export function Prompt({
   )
 }
 
-export function Footer({ queuedCount, running }: { queuedCount: number; running: boolean }) {
+export function Footer({
+  queuedCount,
+  running,
+  status,
+}: {
+  queuedCount: number
+  running: boolean
+  status: string
+}) {
   const action =
     running && queuedCount > 0
       ? "enter queue · empty enter interrupt"
@@ -43,7 +51,10 @@ export function Footer({ queuedCount, running }: { queuedCount: number; running:
   return (
     <Box justifyContent="space-between">
       <Text color="gray">{action}</Text>
-      <Text color="gray">esc abort · ctrl-c exit · scroll: pgup/pgdn home/end · /help</Text>
+      <Text color="gray">
+        {status === "idle" ? "" : `${status} · `}esc abort · ctrl-c exit · terminal scrollback ·
+        /help
+      </Text>
     </Box>
   )
 }

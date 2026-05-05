@@ -1,36 +1,34 @@
 import type { HarnessDeps } from "@leharness/harness"
 import { Box, Text } from "ink"
-import Spinner from "ink-spinner"
 
-export function Header({
+export function SessionHeader({
   deps,
-  running,
-  status,
+  priorEventCount,
+  sessionId,
+  width,
 }: {
   deps: HarnessDeps
-  running: boolean
-  status: string
+  priorEventCount: number
+  sessionId: string
+  width: number
 }) {
   return (
-    <Box justifyContent="space-between">
-      <Box gap={1}>
-        <Text bold># leharness</Text>
-        {running ? (
-          <Text color="cyan">
-            <Spinner type="dots" />
-          </Text>
-        ) : undefined}
+    <Box
+      borderColor="gray"
+      borderStyle="single"
+      flexDirection="column"
+      paddingX={1}
+      width={Math.max(44, width)}
+    >
+      <Box justifyContent="space-between">
+        <Text bold>leharness</Text>
+        <Text color="gray">tui</Text>
       </Box>
-      <Box gap={1}>
-        <Text color={running ? "yellow" : "gray"}>{status}</Text>
-        <Text color="gray">
-          {deps.provider.name}/{deps.model}
-        </Text>
-      </Box>
+      <Text color="gray">session {sessionId}</Text>
+      <Text color="gray">
+        {deps.provider.name} / {deps.model}
+      </Text>
+      {priorEventCount > 0 ? <Text color="gray">{priorEventCount} prior events loaded</Text> : null}
     </Box>
   )
-}
-
-export function SessionLine({ sessionId }: { sessionId: string }) {
-  return <Text color="gray">┃ session {sessionId}</Text>
 }

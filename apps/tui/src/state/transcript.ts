@@ -1,22 +1,15 @@
-import type { Event, HarnessDeps, ToolCall } from "@leharness/harness"
+import type { Event, ToolCall } from "@leharness/harness"
 import { collapseSkillLoadHints } from "../utils/display.js"
 import { argsPreview, finishReason, summarize } from "../utils/format.js"
 import type { Cell, ToolStatus, TranscriptState } from "./types.js"
 
 type CellInput = Omit<Cell, "id">
 
-export function initialTranscript(deps: HarnessDeps): TranscriptState {
+export function initialTranscript(): TranscriptState {
   return {
     activeAssistantIndex: undefined,
-    cells: [
-      {
-        id: "cell-0",
-        kind: "system",
-        title: "ready",
-        text: `Provider ${deps.provider.name} / Model ${deps.model}`,
-      },
-    ],
-    nextCellId: 1,
+    cells: [],
+    nextCellId: 0,
     toolCellById: new Map(),
   }
 }

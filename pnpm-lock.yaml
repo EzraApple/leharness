@@ -60,9 +60,6 @@ importers:
       ink:
         specifier: 6.8.0
         version: 6.8.0(@types/react@19.2.7)(react-devtools-core@6.1.2)(react@19.2.3)
-      ink-scrollable-box:
-        specifier: 1.1.0
-        version: 1.1.0(ink@6.8.0(@types/react@19.2.7)(react-devtools-core@6.1.2)(react@19.2.3))(react@19.2.3)
       ink-spinner:
         specifier: 5.0.0
         version: 5.0.0(ink@6.8.0(@types/react@19.2.7)(react-devtools-core@6.1.2)(react@19.2.3))(react@19.2.3)
@@ -764,13 +761,6 @@ packages:
   indent-string@5.0.0:
     resolution: {integrity: sha512-m6FAo/spmsW2Ab2fU35JTYwtOKa2yAwXSwgjSv1TJzh4Mh7mC3lzAOVLBprb72XsTrgkEIsl7YrFNAiDiRhIGg==}
     engines: {node: '>=12'}
-
-  ink-scrollable-box@1.1.0:
-    resolution: {integrity: sha512-pEk8Xiy3WR9uwGtGxBNxbtvrOdygiTDXObdCGEmiyOcfL1tA9rIag1xsobaheqZLDfUn2xyOpZjbtfMhXVUDQw==}
-    engines: {node: '>=18'}
-    peerDependencies:
-      ink: '>=4.0.0'
-      react: '>=18.0.0'
 
   ink-spinner@5.0.0:
     resolution: {integrity: sha512-EYEasbEjkqLGyPOUc8hBJZNuC5GvXGMLu0w5gdTNskPc7Izc5vO3tdQEYnzvshucyGCBXc86ig0ujXPMWaQCdA==}
@@ -1571,11 +1561,6 @@ snapshots:
       entities: 8.0.0
 
   indent-string@5.0.0: {}
-
-  ink-scrollable-box@1.1.0(ink@6.8.0(@types/react@19.2.7)(react-devtools-core@6.1.2)(react@19.2.3))(react@19.2.3):
-    dependencies:
-      ink: 6.8.0(@types/react@19.2.7)(react-devtools-core@6.1.2)(react@19.2.3)
-      react: 19.2.3
 
   ink-spinner@5.0.0(ink@6.8.0(@types/react@19.2.7)(react-devtools-core@6.1.2)(react@19.2.3))(react@19.2.3):
     dependencies:

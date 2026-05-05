@@ -22,19 +22,23 @@ export function findSlashToken(input: string): SlashToken | undefined {
 }
 
 export function searchSlashItems(skills: Skill[], query: string): SlashItem[] {
-  const items: SlashItem[] = [
-    ...SLASH_COMMANDS.map((command) => ({
-      description: command.description,
-      kind: "command" as const,
-      name: command.name,
-    })),
-    ...skills.map((skill) => ({
-      description: skill.description,
-      kind: "skill" as const,
-      name: skill.name,
-      skill,
-    })),
-  ]
+  const items = dedupeSlashItems([
+    ...SLASH_COMMANDS.map(
+      (command): SlashItem => ({
+        description: command.description,
+        kind: "command",
+        name: command.name,
+      }),
+    ),
+    ...skills.map(
+      (skill): SlashItem => ({
+        description: skill.description,
+        kind: "skill",
+        name: skill.name,
+        skill,
+      }),
+    ),
+  ])
 
   return items
     .map((item, index) => ({ index, item, score: scoreItem(item, query) }))
@@ -42,6 +46,18 @@ export function searchSlashItems(skills: Skill[], query: string): SlashItem[] {
     .sort((a, b) => b.score - a.score || a.index - b.index)
     .slice(0, MAX_RESULTS)
     .map((entry) => entry.item)
+}
+
+function dedupeSlashItems(items: SlashItem[]): SlashItem[] {
+  const seen = new Set<string>()
+  const deduped: SlashItem[] = []
+  for (const item of items) {
+    const key = `${item.kind}:${normalize(item.name)}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    deduped.push(item)
+  }
+  return deduped
 }
 
 export function replaceSlashToken(input: string, token: SlashToken, item: SlashItem): string {
