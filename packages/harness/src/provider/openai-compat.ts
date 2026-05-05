@@ -111,9 +111,9 @@ export class OpenAICompatProvider implements Provider {
     const body = this.buildBody(req, false)
     let response: OpenAIChatCompletion
     try {
-      response = (await this.client.chat.completions.create(
-        body as never,
-      )) as unknown as OpenAIChatCompletion
+      response = (await this.client.chat.completions.create(body as never, {
+        signal: req.signal,
+      })) as unknown as OpenAIChatCompletion
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       throw new ProviderError(`${this.name} call failed: ${message}`, this.name, err)
@@ -141,9 +141,9 @@ export class OpenAICompatProvider implements Provider {
     const body = this.buildBody(req, true)
     let stream: AsyncIterable<OpenAIChatChunk>
     try {
-      stream = (await this.client.chat.completions.create(
-        body as never,
-      )) as unknown as AsyncIterable<OpenAIChatChunk>
+      stream = (await this.client.chat.completions.create(body as never, {
+        signal: req.signal,
+      })) as unknown as AsyncIterable<OpenAIChatChunk>
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       throw new ProviderError(`${this.name} stream open failed: ${message}`, this.name, err)
@@ -157,12 +157,14 @@ export class OpenAICompatProvider implements Provider {
 
     try {
       for await (const chunk of stream) {
+        if (req.signal?.aborted) throw new DOMException("Aborted", "AbortError")
         lastChunk = chunk
         if (chunk.usage) usage = chunk.usage
         const choice = chunk.choices?.[0]
         if (!choice) continue
         const delta = choice.delta ?? {}
         if (delta.content) {
+          if (req.signal?.aborted) throw new DOMException("Aborted", "AbortError")
           text += delta.content
           req.onText?.(delta.content)
         }

@@ -91,6 +91,7 @@ function eventToMessage(event: Event): HarnessMessage | null {
     case "invocation.received":
       return { role: "user", content: event.text as string }
     case "model.completed":
+    case "model.cancelled":
       return {
         role: "assistant",
         content: event.text as string,

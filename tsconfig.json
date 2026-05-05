@@ -13,6 +13,10 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
+    "paths": {
+      "@leharness/harness": ["./packages/harness/src/index.ts"],
+      "@leharness/tui": ["./apps/tui/src/index.tsx"]
+    },
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,

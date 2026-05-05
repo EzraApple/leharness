@@ -48,7 +48,7 @@ export interface RunOptions {
 
 type PromptResult =
   | { kind: "completed"; response: ProviderResponse }
-  | { kind: "cancelled" }
+  | { kind: "cancelled"; text: string }
   | { kind: "failed"; error: string }
 
 type ToolRun =
@@ -83,7 +83,12 @@ export async function runInvocation(
     if (isCancelled(signal)) return endInvocation(invocation, "cancelled")
 
     const promptResult = await sendPrompt(provider, prompt, signal)
-    if (promptResult.kind === "cancelled") return endInvocation(invocation, "cancelled")
+    if (promptResult.kind === "cancelled") {
+      if (promptResult.text.length > 0) {
+        await invocation.recordEvent("model.cancelled", { text: promptResult.text })
+      }
+      return endInvocation(invocation, "cancelled")
+    }
     if (promptResult.kind === "failed") {
       await invocation.recordEvent("model.failed", { error: promptResult.error })
       return endInvocation(invocation, "model_failed")
@@ -167,12 +172,24 @@ async function sendPrompt(
   prompt: PromptInput,
   signal: AbortSignal | undefined,
 ): Promise<PromptResult> {
+  let emittedText = ""
   try {
     const request = buildRequest(prompt)
+    const forwardText = request.onText
+    request.onText =
+      forwardText === undefined
+        ? undefined
+        : (delta: string) => {
+            if (isCancelled(signal)) return
+            emittedText += delta
+            forwardText(delta)
+          }
     const response = await waitForProvider(() => provider.call(request), signal)
-    return isCancelled(signal) ? { kind: "cancelled" } : { kind: "completed", response }
+    return isCancelled(signal)
+      ? { kind: "cancelled", text: emittedText }
+      : { kind: "completed", response }
   } catch (err) {
-    if (isProviderCancelled(err, signal)) return { kind: "cancelled" }
+    if (isProviderCancelled(err, signal)) return { kind: "cancelled", text: emittedText }
     return { kind: "failed", error: errorMessage(err) }
   }
 }
