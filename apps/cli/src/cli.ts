@@ -11,6 +11,7 @@ import {
   resolveLeharnessHome,
   runInvocation,
 } from "@leharness/harness"
+import { runTui } from "@leharness/tui"
 import { ulid } from "ulid"
 import { LiveRenderer } from "./render.js"
 import { builtinTools } from "./tools/index.js"
@@ -18,7 +19,7 @@ import { builtinTools } from "./tools/index.js"
 const cliVersion = readCliVersion()
 
 export interface ParsedArgs {
-  mode: "one_shot" | "interactive"
+  mode: "one_shot" | "minimal" | "tui"
   prompt?: string
   sessionId?: string
   provider?: string
@@ -27,9 +28,9 @@ export interface ParsedArgs {
 }
 
 export function parseArgs(argv: string[]): ParsedArgs {
-  const out: ParsedArgs = { mode: "interactive" }
+  const out: ParsedArgs = { mode: "tui" }
   let prompt: string | undefined
-  let sawAppSubcommand = false
+  let sawInteractiveSubcommand = false
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
@@ -38,11 +39,16 @@ export function parseArgs(argv: string[]): ParsedArgs {
     else if (arg === "--session" || arg === "-s") out.sessionId = argv[++i]
     else if (arg === "--provider" || arg === "-p") out.provider = argv[++i]
     else if (arg === "--model" || arg === "-m") out.model = argv[++i]
-    else if (arg === "cli") sawAppSubcommand = true
-    else if (!arg.startsWith("-") && prompt === undefined) prompt = arg
+    else if (arg === "minimal" || arg === "cli") {
+      out.mode = "minimal"
+      sawInteractiveSubcommand = true
+    } else if (arg === "tui") {
+      out.mode = "tui"
+      sawInteractiveSubcommand = true
+    } else if (!arg.startsWith("-") && prompt === undefined) prompt = arg
   }
 
-  if (prompt !== undefined && !sawAppSubcommand) {
+  if (prompt !== undefined && !sawInteractiveSubcommand) {
     out.mode = "one_shot"
     out.prompt = prompt
   }
@@ -105,7 +111,17 @@ export async function main(argv: string[]): Promise<number> {
     return 0
   }
 
-  await runInteractive(sessionId, deps, args.sessionId !== undefined)
+  if (args.mode === "minimal") {
+    await runMinimalInteractive(sessionId, deps, args.sessionId !== undefined)
+    return 0
+  }
+
+  try {
+    await runTui(sessionId, deps, args.sessionId !== undefined)
+  } catch (err) {
+    process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`)
+    return 1
+  }
   return 0
 }
 
@@ -121,12 +137,12 @@ async function runOnce(
   })
 }
 
-async function runInteractive(
+async function runMinimalInteractive(
   sessionId: string,
   deps: HarnessDeps,
   resuming: boolean,
 ): Promise<void> {
-  process.stdout.write(`lh cli (session: ${sessionId})\n`)
+  process.stdout.write(`lh minimal (session: ${sessionId})\n`)
   process.stdout.write(`Provider: ${deps.provider.name}, Model: ${deps.model}\n`)
   process.stdout.write(`/help for commands. Ctrl-C or /exit to quit.\n\n`)
   const renderer = new LiveRenderer()
@@ -176,7 +192,7 @@ function cliHelp(): string {
   /help        show this help
   /clear       clear the screen
   /session     print the current session id
-  /exit        leave the cli (Ctrl-C and Ctrl-D also work)
+  /exit        leave the minimal cli (Ctrl-C and Ctrl-D also work)
 `
 }
 
@@ -185,10 +201,11 @@ function printUsage(): void {
     `lh ${cliVersion} - launcher for leharness apps
 
 Usage:
-  lh                        Start the interactive cli (default)
-  lh cli                    Start the interactive cli (explicit)
+  lh                        Start the TUI (default)
+  lh tui                    Start the TUI (explicit)
+  lh minimal                Start the minimal line-mode CLI
   lh "<prompt>"             Run a single prompt and print the response
-  lh --session <id> ...     Resume an existing session
+  lh --session <id>         Resume an existing session in the TUI
 
 Options:
   -s, --session <id>        Use the given session id (defaults to a new ULID)

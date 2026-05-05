@@ -1,7 +1,7 @@
 import * as fs from "node:fs/promises"
 import * as os from "node:os"
 import * as path from "node:path"
-import { loadEvents, runInvocation } from "../../dist/index.js"
+import { buildPrompt, loadEvents, runInvocation } from "../../dist/index.js"
 
 function assert(cond, msg) {
   if (!cond) {
@@ -112,6 +112,7 @@ async function smokePreCancelled() {
 
 async function smokeCancelDuringProvider() {
   const controller = new AbortController()
+  const textDeltas = []
   let providerSawSignal = false
   let providerStarted
   const started = new Promise((resolve) => {
@@ -122,6 +123,14 @@ async function smokeCancelDuringProvider() {
     async call(req) {
       providerSawSignal = req.signal === controller.signal
       providerStarted()
+      req.onText?.("partial answer")
+      req.signal?.addEventListener(
+        "abort",
+        () => {
+          setTimeout(() => req.onText?.("late text after abort"), 0)
+        },
+        { once: true },
+      )
       return new Promise(() => {})
     },
   }
@@ -130,18 +139,40 @@ async function smokeCancelDuringProvider() {
     "smoke-in-flight-cancelled",
     "cancel while provider is running",
     { provider, tools: [], model: "fake" },
-    { signal: controller.signal },
+    { onText: (delta) => textDeltas.push(delta), signal: controller.signal },
   )
   await started
   controller.abort()
 
   const events = await run
+  await new Promise((resolve) => setTimeout(resolve, 10))
   const persisted = await loadEvents("smoke-in-flight-cancelled")
   const eventTypes = persisted.map((event) => event.type)
   console.log(`smoke-invocation-control cancel events = ${JSON.stringify(eventTypes)}`)
 
   assert(providerSawSignal, "provider request should carry the invocation AbortSignal")
+  assert(
+    JSON.stringify(textDeltas) === JSON.stringify(["partial answer"]),
+    `only pre-cancel provider text should be forwarded, got ${JSON.stringify(textDeltas)}`,
+  )
   assert(events.at(-1)?.reason === "cancelled", "in-flight cancellation should finish cancelled")
+  assert(
+    JSON.stringify(eventTypes) ===
+      JSON.stringify(["invocation.received", "step.started", "model.cancelled", "agent.finished"]),
+    `in-flight cancellation event types mismatch: ${JSON.stringify(eventTypes)}`,
+  )
+  const partial = persisted.find((event) => event.type === "model.cancelled")
+  assert(
+    partial?.text === "partial answer",
+    `model.cancelled should persist emitted text, got ${partial?.text}`,
+  )
+  const prompt = buildPrompt(persisted, [], { model: "fake" })
+  assert(
+    prompt.messages.some(
+      (message) => message.role === "assistant" && message.content === "partial answer",
+    ),
+    "cancelled assistant text should be included in future model context",
+  )
   assert(
     !persisted.some((event) => event.type === "model.completed"),
     "in-flight cancellation should not append model.completed",
