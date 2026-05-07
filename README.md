@@ -62,18 +62,34 @@ export OPENAI_API_KEY=...
 lh --provider openai
 ```
 
+Use DeepSeek:
+
+```bash
+export DEEPSEEK_API_KEY=...
+lh --provider deepseek
+lh --provider deepseek --model deepseek-v4-pro
+```
+
 Use Ollama:
 
 ```bash
-ollama pull gemma4:26b
+ollama pull qwen3.6:27b-coding-nvfp4
 lh --provider ollama
+```
+
+In the TUI, `/model` opens a client-side model picker and `/effort` opens a
+client-side reasoning effort picker for supported models:
+
+```text
+/model
+/effort
 ```
 
 Useful options:
 
 ```bash
 lh --session <id>        # resume an existing session
-lh --provider openai     # choose openai or ollama
+lh --provider openai     # choose openai, ollama, or deepseek
 lh --model <name>        # override the provider's default model
 lh --help                # print usage
 ```
@@ -85,8 +101,12 @@ LEHARNESS_HOME=...             # override the session storage directory
 LEHARNESS_PROVIDER=openai      # set the default provider
 LEHARNESS_MODEL=gpt-4o-mini    # set the default model
 OPENAI_API_KEY=...             # required for OpenAI
+DEEPSEEK_API_KEY=...           # required for DeepSeek
 LEHARNESS_OLLAMA_BASE_URL=...  # override the Ollama OpenAI-compatible URL
+LEHARNESS_DEEPSEEK_BASE_URL=... # override the DeepSeek OpenAI-compatible URL
 ```
+
+The CLI also reads a repo-local `.env` file before provider setup.
 
 Sessions are saved under `.leharness/sessions` in the current working directory
 unless `LEHARNESS_HOME` is set.

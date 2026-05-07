@@ -1,18 +1,25 @@
 import { Box, Text } from "ink"
 import stringWidth from "string-width"
 import wrapAnsi from "wrap-ansi"
-import type { SlashItem } from "../slash/types.js"
 
 const COLUMN_GAP = 4
 const MAX_NAME_WIDTH = 30
 const MIN_NAME_WIDTH = 22
 
+export interface MenuItem {
+  description: string
+  kind: string
+  name: string
+}
+
 export function SlashMenu({
   items,
+  prefix = "/",
   selectedIndex,
   width,
 }: {
-  items: SlashItem[]
+  items: MenuItem[]
+  prefix?: string
   selectedIndex: number
   width: number
 }) {
@@ -28,7 +35,7 @@ export function SlashMenu({
         const color = selected ? "blue" : "gray"
         const descriptionLines = wrapDescription(item.description, descriptionWidth)
         const continuation = descriptionLines[1]
-        const name = padToWidth(trimToWidth(`/${item.name}`, nameWidth), nameWidth)
+        const name = padToWidth(trimToWidth(`${prefix}${item.name}`, nameWidth), nameWidth)
 
         return (
           <Box flexDirection="column" key={`${item.kind}:${item.name}`}>

@@ -1,5 +1,6 @@
 import { type ZodTypeAny, z } from "zod"
 import type { Event, RecordEvent } from "./events.js"
+import type { ReasoningEffort } from "./models.js"
 import type { HarnessMessage, HarnessTool, Provider, ProviderRequest } from "./provider/index.js"
 import type { Tool, ToolCall } from "./tools.js"
 
@@ -13,7 +14,9 @@ export interface BuildPromptOptions {
   system?: string
   temperature?: number
   maxOutputTokens?: number
+  reasoningEffort?: ReasoningEffort
   onText?: (delta: string) => void
+  onReasoningText?: (delta: string) => void
   signal?: AbortSignal
 }
 
@@ -64,7 +67,9 @@ export function buildInput(
     system: options.system,
     temperature: options.temperature,
     maxOutputTokens: options.maxOutputTokens,
+    reasoningEffort: options.reasoningEffort,
     onText: options.onText,
+    onReasoningText: options.onReasoningText,
     signal: options.signal,
     sessionId: options.sessionId,
     provider: options.provider,
@@ -81,7 +86,9 @@ export function buildRequest(input: PromptInput): ProviderRequest {
     tools: input.tools,
     temperature: input.temperature,
     maxOutputTokens: input.maxOutputTokens,
+    reasoningEffort: input.reasoningEffort,
     onText: input.onText,
+    onReasoningText: input.onReasoningText,
     signal: input.signal,
   }
 }
@@ -95,6 +102,10 @@ function eventToMessage(event: Event): HarnessMessage | null {
       return {
         role: "assistant",
         content: event.text as string,
+        reasoningText:
+          typeof event.reasoningText === "string" && event.reasoningText.length > 0
+            ? event.reasoningText
+            : undefined,
         toolCalls: (event.toolCalls as ToolCall[]) ?? [],
       }
     case "tool.completed": {

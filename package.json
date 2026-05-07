@@ -15,7 +15,7 @@
     "package:prepare": "pnpm build && node scripts/prepare-npm-package.mjs",
     "package:pack": "pnpm package:prepare && npm pack dist/npm/leharness --pack-destination dist/npm",
     "package:verify": "pnpm package:pack && node scripts/verify-npm-package.mjs",
-    "smoke": "pnpm -r build && node packages/harness/scripts/smoke.mjs"
+    "smoke": "pnpm -r build && node packages/harness/scripts/smoke.mjs && node apps/tui/scripts/smoke-transcript.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.12",

@@ -1,8 +1,9 @@
+import type { ReasoningEffort } from "../models.js"
 import type { ToolCall } from "../tools.js"
 
 export type HarnessMessage =
   | { role: "user"; content: string }
-  | { role: "assistant"; content: string; toolCalls: ToolCall[] }
+  | { role: "assistant"; content: string; reasoningText?: string; toolCalls: ToolCall[] }
   | { role: "tool"; toolCallId: string; content: string }
 
 export interface HarnessTool {
@@ -18,12 +19,15 @@ export interface ProviderRequest {
   tools?: HarnessTool[]
   temperature?: number
   maxOutputTokens?: number
+  reasoningEffort?: ReasoningEffort
   onText?: (delta: string) => void
+  onReasoningText?: (delta: string) => void
   signal?: AbortSignal
 }
 
 export interface ProviderResponse {
   text: string
+  reasoningText?: string
   toolCalls: ToolCall[]
   usage?: { promptTokens: number; completionTokens: number }
   stopReason: "stop" | "tool_calls" | "length" | "error"

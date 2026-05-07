@@ -32,6 +32,18 @@ function appendCellInline(state: TranscriptState, cell: CellInput): number {
   return index
 }
 
+function insertCellInline(state: TranscriptState, index: number, cell: CellInput): void {
+  const id = `cell-${state.nextCellId}`
+  state.nextCellId += 1
+  state.cells.splice(index, 0, { id, ...cell })
+  if (state.activeAssistantIndex !== undefined && state.activeAssistantIndex >= index) {
+    state.activeAssistantIndex += 1
+  }
+  for (const [toolCallId, toolIndex] of state.toolCellById) {
+    if (toolIndex >= index) state.toolCellById.set(toolCallId, toolIndex + 1)
+  }
+}
+
 function updateCellInline(state: TranscriptState, index: number, update: Partial<CellInput>): void {
   const cell = state.cells[index]
   if (cell === undefined) return
@@ -82,7 +94,8 @@ export function reduceEvent(state: TranscriptState, event: Event): TranscriptSta
       pushCell(next, { kind: "user", text: collapseSkillLoadHints(String(event.text ?? "")) })
       break
     case "model.completed":
-    case "model.cancelled":
+    case "model.cancelled": {
+      appendReasoning(next, event)
       commitAssistant(next, event)
       if (event.type === "model.cancelled") break
       for (const call of readToolCalls(event.toolCalls)) {
@@ -95,6 +108,7 @@ export function reduceEvent(state: TranscriptState, event: Event): TranscriptSta
         next.toolCellById.set(call.id, index)
       }
       break
+    }
     case "tool.completed":
       completeTool(next, event, "completed")
       break
@@ -120,6 +134,21 @@ export function reduceEvent(state: TranscriptState, event: Event): TranscriptSta
       break
   }
   return next
+}
+
+function appendReasoning(state: TranscriptState, event: Event): void {
+  const reasoningText = String(event.reasoningText ?? "").trim()
+  if (reasoningText.length === 0) return
+  const cell: CellInput = {
+    kind: "system",
+    text: summarize(reasoningText, 10, 1200),
+    title: "reasoning",
+  }
+  if (state.activeAssistantIndex === undefined) {
+    pushCell(state, cell)
+    return
+  }
+  insertCellInline(state, state.activeAssistantIndex, cell)
 }
 
 function commitAssistant(state: TranscriptState, event: Event): void {

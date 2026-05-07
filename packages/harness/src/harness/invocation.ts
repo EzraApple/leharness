@@ -1,5 +1,6 @@
 import { compact } from "../compaction/index.js"
 import type { Event } from "../events.js"
+import type { ReasoningEffort } from "../models.js"
 import {
   buildInput,
   buildRequest,
@@ -37,11 +38,13 @@ export interface HarnessDeps {
   maxOutputTokens?: number
   maxSteps?: number
   compaction?: CompactionOptions
+  reasoningEffort?: ReasoningEffort
   skills?: SkillOptions | false
 }
 
 export interface RunOptions {
   onText?: (delta: string) => void
+  onReasoningText?: (delta: string) => void
   onEvent?: (event: Event) => void
   signal?: AbortSignal
 }
@@ -70,7 +73,12 @@ export async function runInvocation(
   const signal = options.signal
   const invocation = await loadInvocationState(sessionId, options)
 
-  await invocation.recordEvent("invocation.received", { text: userText })
+  await invocation.recordEvent("invocation.received", {
+    text: userText,
+    provider: deps.provider.name,
+    model: deps.model,
+    reasoningEffort: deps.reasoningEffort,
+  })
 
   for (let stepNumber = 1; stepNumber <= maxSteps; stepNumber++) {
     if (isCancelled(signal)) return endInvocation(invocation, "cancelled")
@@ -96,6 +104,7 @@ export async function runInvocation(
 
     await invocation.recordEvent("model.completed", {
       text: promptResult.response.text,
+      reasoningText: promptResult.response.reasoningText,
       toolCalls: promptResult.response.toolCalls,
       usage: promptResult.response.usage,
     })
@@ -158,7 +167,9 @@ async function preparePrompt(
       system,
       temperature: deps.temperature,
       maxOutputTokens: deps.maxOutputTokens,
+      reasoningEffort: deps.reasoningEffort,
       onText: options.onText,
+      onReasoningText: options.onReasoningText,
       signal: options.signal,
       compaction: deps.compaction,
       recordEvent: invocation.recordEvent,
