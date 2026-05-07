@@ -5,12 +5,6 @@ import type { QueuedMessage } from "../state/types.js"
 
 const MAX_VISIBLE_MESSAGES = 4
 
-export function queuedMessagesHeight(messages: QueuedMessage[]): number {
-  if (messages.length === 0) return 0
-  const hidden = Math.max(0, messages.length - MAX_VISIBLE_MESSAGES)
-  return Math.min(messages.length, MAX_VISIBLE_MESSAGES) + (hidden > 0 ? 1 : 0)
-}
-
 export function QueuedMessages({ messages, width }: { messages: QueuedMessage[]; width: number }) {
   if (messages.length === 0) return null
 

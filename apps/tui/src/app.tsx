@@ -1,10 +1,9 @@
 import { discoverSkills, type Event, type HarnessDeps, type Skill } from "@leharness/harness"
 import { Box, useApp, useInput, useStdout } from "ink"
 import { useEffect, useMemo, useRef, useState } from "react"
-import { Header, SessionLine } from "./components/header.js"
 import { Footer, Prompt } from "./components/prompt.js"
-import { QueuedMessages, queuedMessagesHeight } from "./components/queued-messages.js"
-import { SlashMenu, slashMenuHeight } from "./components/slash-menu.js"
+import { QueuedMessages } from "./components/queued-messages.js"
+import { SlashMenu } from "./components/slash-menu.js"
 import { Transcript } from "./components/transcript.js"
 import { isSlashCommand } from "./slash/commands.js"
 import {
@@ -15,12 +14,6 @@ import {
 } from "./slash/search.js"
 import { appendCell, initialTranscript, reduceEvent, reduceText } from "./state/transcript.js"
 import type { QueuedMessage, TranscriptState } from "./state/types.js"
-import {
-  DISABLE_MOUSE_REPORTING,
-  ENABLE_MOUSE_REPORTING,
-  mouseWheelDelta,
-  stripMouseSequences,
-} from "./utils/mouse.js"
 
 export function TuiApp({
   deps,
@@ -42,31 +35,20 @@ export function TuiApp({
 }) {
   const { exit } = useApp()
   const { stdout } = useStdout()
-  const [dimensions, setDimensions] = useState(() => ({
-    columns: stdout.columns ?? 80,
-    rows: stdout.rows ?? 24,
-  }))
+  const [columns, setColumns] = useState(() => stdout.columns ?? 80)
   const [input, setInput] = useState("")
   const [inputVersion, setInputVersion] = useState(0)
   const [history, setHistory] = useState<string[]>([])
   const [historyIndex, setHistoryIndex] = useState<number | undefined>()
-  const [scrollOffset, setScrollOffset] = useState(0)
-  const [transcriptRows, setTranscriptRows] = useState(0)
   const [skills, setSkills] = useState<Skill[]>([])
   const [slashSelectedIndex, setSlashSelectedIndex] = useState(0)
   const [slashDismissedInput, setSlashDismissedInput] = useState<string | undefined>()
   const [running, setRunning] = useState(false)
   const [status, setStatus] = useState("idle")
   const [queuedMessages, setQueuedMessages] = useState<QueuedMessage[]>([])
+  const [transcriptResetKey, setTranscriptResetKey] = useState(0)
   const [transcript, setTranscript] = useState<TranscriptState>(() => {
-    let state = initialTranscript(deps)
-    if (priorEvents.length > 0) {
-      state = appendCell(state, {
-        kind: "system",
-        title: "resume",
-        text: `${priorEvents.length} prior events loaded`,
-      })
-    }
+    let state = initialTranscript()
     for (const event of priorEvents) state = reduceEvent(state, event)
     return state
   })
@@ -80,10 +62,7 @@ export function TuiApp({
 
   useEffect(() => {
     const resize = () => {
-      setDimensions({
-        columns: stdout.columns ?? 80,
-        rows: stdout.rows ?? 24,
-      })
+      setColumns(stdout.columns ?? 80)
     }
     stdout.on("resize", resize)
     return () => {
@@ -94,13 +73,6 @@ export function TuiApp({
   useEffect(() => {
     return () => abortRef.current?.abort()
   }, [])
-
-  useEffect(() => {
-    stdout.write(ENABLE_MOUSE_REPORTING)
-    return () => {
-      stdout.write(DISABLE_MOUSE_REPORTING)
-    }
-  }, [stdout])
 
   useEffect(() => {
     if (deps.skills === false) {
@@ -257,28 +229,6 @@ export function TuiApp({
         exit()
         return
       }
-      const maxScrollOffset = Math.max(0, transcriptRows - transcriptHeight)
-      const wheelDelta = mouseWheelDelta(rawInput)
-      if (wheelDelta !== 0) {
-        setScrollOffset((current) => Math.max(0, Math.min(maxScrollOffset, current + wheelDelta)))
-        return
-      }
-      if (key.pageUp || rawInput === "\u001b[5~") {
-        setScrollOffset((current) => Math.max(0, current - transcriptHeight))
-        return
-      }
-      if (key.pageDown || rawInput === "\u001b[6~") {
-        setScrollOffset((current) => Math.min(maxScrollOffset, current + transcriptHeight))
-        return
-      }
-      if (key.home || rawInput === "\u001b[H" || rawInput === "\u001b[1~") {
-        setScrollOffset(0)
-        return
-      }
-      if (key.end || rawInput === "\u001b[F" || rawInput === "\u001b[4~") {
-        setScrollOffset(maxScrollOffset)
-        return
-      }
       if ((key.return || rawInput === "\r" || rawInput === "\n") && input.trim().length === 0) {
         if (interruptForQueuedMessage()) return
       }
@@ -351,7 +301,8 @@ export function TuiApp({
       return
     }
     if (text === "/clear") {
-      setTranscript(initialTranscript(deps))
+      setTranscript(initialTranscript())
+      setTranscriptResetKey((key) => key + 1)
       clearComposer()
       return
     }
@@ -371,8 +322,8 @@ export function TuiApp({
             "Enter sends when idle and queues while running.",
             "With queued messages and an empty input, Enter interrupts the current run and sends the queue.",
             "Esc aborts the current run. Ctrl-C exits.",
-            "Transcript pane handles PageUp/PageDown plus Home/End scrolling.",
-            "/session prints the current session id. /clear clears the visible transcript. /exit quits.",
+            "Use your terminal scrollback to review previous transcript output.",
+            "/session prints the current session id. /clear starts a fresh transcript. /exit quits.",
           ].join("\n"),
         }),
       )
@@ -394,18 +345,7 @@ export function TuiApp({
     void startInvocation(text)
   }
 
-  const menuHeight = slashActive ? slashMenuHeight(slashItems) : 0
-  const queueHeight = queuedMessages.length > 0 ? queuedMessagesHeight(queuedMessages) + 1 : 0
-  const transcriptHeight = Math.max(6, dimensions.rows - 8 - menuHeight - queueHeight)
-  const maxScrollOffset = Math.max(0, transcriptRows - transcriptHeight)
   const changeInput = (value: string) => {
-    const sanitizedValue = stripMouseSequences(value)
-    if (sanitizedValue !== value) {
-      setInput(sanitizedValue)
-      setSlashDismissedInput(undefined)
-      setSlashSelectedIndex(0)
-      return
-    }
     if (clearInputRef.current) {
       clearInputRef.current = false
       setInput("")
@@ -418,23 +358,16 @@ export function TuiApp({
 
   return (
     <Box flexDirection="column" paddingX={1}>
-      <Header deps={deps} running={running} status={status} />
-      <SessionLine sessionId={sessionId} />
       <Transcript
-        height={transcriptHeight}
-        offset={Math.min(scrollOffset, maxScrollOffset)}
-        onOffsetChange={setScrollOffset}
-        onRowsChange={(rows) => {
-          setTranscriptRows(rows)
-          setScrollOffset((current) =>
-            current >= maxScrollOffset ? Math.max(0, rows - transcriptHeight) : current,
-          )
-        }}
+        deps={deps}
+        priorEventCount={priorEvents.length}
+        resetKey={transcriptResetKey}
         running={running}
+        sessionId={sessionId}
         transcript={transcript}
-        width={dimensions.columns}
+        width={columns}
       />
-      <QueuedMessages messages={queuedMessages} width={dimensions.columns} />
+      <QueuedMessages messages={queuedMessages} width={columns} />
       <Prompt
         input={input}
         inputVersion={inputVersion}
@@ -442,8 +375,10 @@ export function TuiApp({
         setInput={changeInput}
         submit={submit}
       />
-      <SlashMenu items={slashItems} selectedIndex={slashSelectedIndex} width={dimensions.columns} />
-      <Footer queuedCount={queuedMessages.length} running={running} />
+      <SlashMenu items={slashItems} selectedIndex={slashSelectedIndex} width={columns} />
+      {slashActive ? null : (
+        <Footer queuedCount={queuedMessages.length} running={running} status={status} />
+      )}
     </Box>
   )
 }
