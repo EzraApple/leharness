@@ -1,6 +1,5 @@
 import type { Skill } from "@leharness/harness"
-import { SLASH_COMMANDS } from "./commands.js"
-import type { SlashItem, SlashToken } from "./types.js"
+import type { SlashCommand, SlashItem, SlashToken } from "./types.js"
 
 const MAX_RESULTS = 5
 
@@ -21,9 +20,13 @@ export function findSlashToken(input: string): SlashToken | undefined {
   }
 }
 
-export function searchSlashItems(skills: Skill[], query: string): SlashItem[] {
+export function searchSlashItems(
+  commands: SlashCommand[],
+  skills: Skill[],
+  query: string,
+): SlashItem[] {
   const items = dedupeSlashItems([
-    ...SLASH_COMMANDS.map(
+    ...commands.map(
       (command): SlashItem => ({
         description: command.description,
         kind: "command",
@@ -62,10 +65,7 @@ function dedupeSlashItems(items: SlashItem[]): SlashItem[] {
 
 export function replaceSlashToken(input: string, token: SlashToken, item: SlashItem): string {
   const replacement = `/${item.name}`
-  return `${input.slice(0, token.start)}${replacement} ${input.slice(token.end)}`.replace(
-    /\s+$/g,
-    " ",
-  )
+  return `${input.slice(0, token.start)}${replacement}${input.slice(token.end)}`.trimEnd()
 }
 
 export function expandSkillTokens(input: string, skills: Skill[]): string {

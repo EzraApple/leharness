@@ -24,7 +24,9 @@ export async function runTui(
     <TuiApp
       deps={deps}
       priorEvents={priorEvents}
-      runPrompt={(text, options) => runPrompt(sessionId, text, deps, options)}
+      runPrompt={(text, invocationDeps, options) =>
+        runPrompt(sessionId, text, invocationDeps, options)
+      }
       sessionId={sessionId}
     />,
     { exitOnCtrlC: false },

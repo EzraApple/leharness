@@ -10,6 +10,14 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     name: "session",
   },
   {
+    description: "Open model picker.",
+    name: "model",
+  },
+  {
+    description: "Open reasoning effort picker.",
+    name: "effort",
+  },
+  {
     description: "Clear the visible transcript.",
     name: "clear",
   },
@@ -19,6 +27,10 @@ export const SLASH_COMMANDS: SlashCommand[] = [
   },
 ]
 
-export function isSlashCommand(text: string): boolean {
-  return SLASH_COMMANDS.some((command) => text === `/${command.name}`) || text === "/quit"
+export function isSlashCommand(text: string, commands = SLASH_COMMANDS): boolean {
+  return (
+    commands.some(
+      (command) => text === `/${command.name}` || text.startsWith(`/${command.name} `),
+    ) || text === "/quit"
+  )
 }

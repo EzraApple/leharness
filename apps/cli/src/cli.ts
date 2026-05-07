@@ -2,11 +2,12 @@ import { readFileSync } from "node:fs"
 import * as path from "node:path"
 import { stdin, stdout } from "node:process"
 import * as readline from "node:readline/promises"
+import { fileURLToPath } from "node:url"
 import {
+  buildProvider,
+  defaultModelFor,
   type HarnessDeps,
   loadEvents,
-  OllamaProvider,
-  OpenAIProvider,
   type Provider,
   resolveLeharnessHome,
   runInvocation,
@@ -55,24 +56,8 @@ export function parseArgs(argv: string[]): ParsedArgs {
   return out
 }
 
-export function buildProvider(name: string): Provider {
-  switch (name) {
-    case "ollama":
-      return new OllamaProvider()
-    case "openai":
-      return new OpenAIProvider()
-    default:
-      throw new Error(`unknown provider: ${name}. Supported: ollama, openai.`)
-  }
-}
-
-export function defaultModelFor(providerName: string): string {
-  if (providerName === "ollama") return "gemma4:26b"
-  if (providerName === "openai") return "gpt-4o-mini"
-  throw new Error(`no default model for provider: ${providerName}`)
-}
-
 export async function main(argv: string[]): Promise<number> {
+  loadDotEnvFiles()
   const args = parseArgs(argv)
   if (args.help) {
     printUsage()
@@ -209,7 +194,7 @@ Usage:
 
 Options:
   -s, --session <id>        Use the given session id (defaults to a new ULID)
-  -p, --provider <name>     Provider to use (ollama | openai). Defaults to env LEHARNESS_PROVIDER or "ollama".
+  -p, --provider <name>     Provider to use (ollama | openai | deepseek). Defaults to env LEHARNESS_PROVIDER or "ollama".
   -m, --model <name>        Model name to pass to the provider. Defaults to provider's default.
   -h, --help                Show this help
 
@@ -218,9 +203,69 @@ Environment:
   LEHARNESS_PROVIDER        Default provider
   LEHARNESS_MODEL           Default model
   OPENAI_API_KEY            Required when using --provider openai
+  DEEPSEEK_API_KEY          Required when using --provider deepseek
   LEHARNESS_OLLAMA_BASE_URL Override Ollama endpoint (default http://localhost:11434/v1)
+  LEHARNESS_DEEPSEEK_BASE_URL Override DeepSeek endpoint (default https://api.deepseek.com)
 `,
   )
+}
+
+function loadDotEnvFiles(): void {
+  for (const filePath of dotEnvPaths()) {
+    loadDotEnv(filePath)
+  }
+}
+
+function dotEnvPaths(): string[] {
+  return dedupePaths([
+    path.resolve(process.cwd(), ".env"),
+    fileURLToPath(new URL("../../../.env", import.meta.url)),
+  ])
+}
+
+function dedupePaths(paths: string[]): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const filePath of paths) {
+    if (seen.has(filePath)) continue
+    seen.add(filePath)
+    out.push(filePath)
+  }
+  return out
+}
+
+function loadDotEnv(filePath: string): void {
+  let raw: string
+  try {
+    raw = readFileSync(filePath, "utf8")
+  } catch {
+    return
+  }
+
+  for (const line of raw.split("\n")) {
+    const trimmed = line.trim()
+    if (trimmed.length === 0 || trimmed.startsWith("#")) continue
+    const equals = trimmed.indexOf("=")
+    if (equals <= 0) continue
+    const key = trimmed.slice(0, equals).trim()
+    const value = stripEnvQuotes(trimmed.slice(equals + 1).trim())
+    if (!isValidEnvKey(key) || process.env[key] !== undefined) continue
+    process.env[key] = value
+  }
+}
+
+function stripEnvQuotes(value: string): string {
+  if (
+    (value.startsWith('"') && value.endsWith('"')) ||
+    (value.startsWith("'") && value.endsWith("'"))
+  ) {
+    return value.slice(1, -1)
+  }
+  return value
+}
+
+function isValidEnvKey(value: string): boolean {
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(value)
 }
 
 function readCliVersion(): string {
