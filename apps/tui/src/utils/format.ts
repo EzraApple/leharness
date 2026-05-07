@@ -1,9 +1,3 @@
-export function argsPreview(args: unknown): string {
-  const s = JSON.stringify(args) ?? ""
-  if (s.length > 180) return `${s.slice(0, 177)}...`
-  return s
-}
-
 export function finishReason(reason: string): string {
   if (reason === "no_tool_calls") return "Done"
   if (reason === "cancelled") return "Cancelled"

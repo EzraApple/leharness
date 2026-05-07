@@ -107,6 +107,13 @@ export function createLoadSkillTool(
     description:
       "Load the full instructions for a discovered skill by name. Call this before applying a listed skill.",
     schema: loadSkillArgs,
+    display: {
+      pending: "loading",
+      completed: "loaded",
+      failed: "could not load",
+      target: (args) => `/${args.name}`,
+      summarize: (output) => firstLine(output),
+    },
     async execute(args, ctx: ToolContext): Promise<ToolExecuteResult> {
       const root = path.resolve(options.root ?? process.cwd())
       const skills = await discoverSkills(root)
@@ -138,6 +145,10 @@ export function createLoadSkillTool(
       }
     },
   }
+}
+
+function firstLine(value: string): string {
+  return value.split("\n")[0] ?? ""
 }
 
 export function skillOptionsEnabled(options: SkillOptions | false | undefined): boolean {

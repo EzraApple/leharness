@@ -18,6 +18,13 @@ export const listDirTool: Tool<ListDirArgs> = {
   description:
     "List the entries in a directory. Returns one entry per line, with a trailing slash for directories. Useful for exploring the project structure.",
   schema: listDirArgs,
+  display: {
+    pending: "listing",
+    completed: "listed",
+    failed: "could not list",
+    target: (args) => args.path,
+    summarize: (output) => `${entryCount(output)} entries`,
+  },
   async execute(args, _ctx: ToolContext): Promise<ToolExecuteResult> {
     const target = path.resolve(process.cwd(), args.path)
     try {
@@ -34,4 +41,9 @@ export const listDirTool: Tool<ListDirArgs> = {
       return { kind: "error", message: `list_dir failed: ${message}` }
     }
   },
+}
+
+function entryCount(value: string): number {
+  if (value.length === 0) return 0
+  return value.split("\n").length
 }

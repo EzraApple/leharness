@@ -239,9 +239,9 @@ function pushThinking(rows: TranscriptRow[], cell: Cell): void {
 }
 
 function pushTool(rows: TranscriptRow[], cell: Cell, width: number): void {
-  const title = cell.title ?? "tool"
+  const title = renderToolDisplayTitle(cell)
   if (cell.status === "pending") {
-    pushRailedWrapped(rows, cell, `${title} ${cell.text}`, width, "yellow")
+    pushRailedWrapped(rows, cell, title, width, "yellow")
     return
   }
 
@@ -250,10 +250,27 @@ function pushTool(rows: TranscriptRow[], cell: Cell, width: number): void {
   pushRailedWrapped(
     rows,
     cell,
-    `${title} ${failed ? "failed" : "ok"}\n${cell.text}`,
+    [title, cell.text.trim()].filter((part) => part.length > 0).join("\n"),
     width,
     failed ? "red" : "gray",
   )
+}
+
+function renderToolDisplayTitle(cell: Cell): string {
+  const display = cell.display
+  if (display === undefined) {
+    const title = cell.title ?? "tool"
+    if (cell.status === "pending") return title
+    return `${title} ${cell.status === "failed" ? "failed" : "ok"}`
+  }
+
+  const verb =
+    cell.status === "pending"
+      ? display.pending
+      : cell.status === "failed"
+        ? display.failed
+        : display.completed
+  return [verb, display.target].filter((part) => part !== undefined && part.length > 0).join(" ")
 }
 
 function pushRailedWrapped(

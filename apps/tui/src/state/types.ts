@@ -1,3 +1,5 @@
+import type { ToolDisplaySnapshot } from "@leharness/harness"
+
 type CellKind = "system" | "user" | "assistant" | "tool" | "error"
 export type ToolStatus = "pending" | "completed" | "failed"
 
@@ -7,6 +9,7 @@ export interface Cell {
   title?: string
   text: string
   status?: ToolStatus
+  display?: ToolDisplaySnapshot
 }
 
 export interface TranscriptState {

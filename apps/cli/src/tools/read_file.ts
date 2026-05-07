@@ -16,6 +16,13 @@ export const readFileTool: Tool<ReadFileArgs> = {
   description:
     "Read the contents of a file. Returns the file contents as a UTF-8 string. Useful for inspecting source code, configs, READMEs, etc.",
   schema: readFileArgs,
+  display: {
+    pending: "reading",
+    completed: "read",
+    failed: "could not read",
+    target: (args) => args.path,
+    summarize: (output) => `${lineCount(output)} lines · ${byteLength(output)} bytes`,
+  },
   async execute(args, _ctx: ToolContext): Promise<ToolExecuteResult> {
     const target = path.resolve(process.cwd(), args.path)
     try {
@@ -26,4 +33,13 @@ export const readFileTool: Tool<ReadFileArgs> = {
       return { kind: "error", message: `read_file failed: ${message}` }
     }
   },
+}
+
+function lineCount(value: string): number {
+  if (value.length === 0) return 0
+  return value.split("\n").length
+}
+
+function byteLength(value: string): number {
+  return Buffer.byteLength(value, "utf8")
 }

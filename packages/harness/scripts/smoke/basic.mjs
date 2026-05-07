@@ -98,6 +98,7 @@ const expectedEventTypes = [
   "invocation.received",
   "step.started",
   "model.completed",
+  "tool.started",
   "tool.completed",
   "step.started",
   "model.completed",

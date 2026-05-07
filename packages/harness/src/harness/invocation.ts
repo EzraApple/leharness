@@ -20,6 +20,7 @@ import {
 } from "../skills.js"
 import {
   executeToolCall,
+  pendingDisplayForToolCall,
   type Tool,
   type ToolCall,
   type ToolContext,
@@ -112,16 +113,11 @@ export async function runInvocation(
       return endInvocation(invocation, "no_tool_calls")
     }
 
-    const ctx: ToolContext = { sessionId, recordEvent: invocation.recordEvent, signal }
-    const toolRun = await executeTools(promptResult.response.toolCalls, preparedPrompt.tools, ctx)
-    for (const result of toolRun.results) {
-      if (result.ok) {
-        await invocation.recordEvent("tool.completed", { call: result.call, result: result.value })
-      } else {
-        await invocation.recordEvent("tool.failed", { call: result.call, error: result.error })
-      }
-    }
-
+    const toolRun = await executeTools(promptResult.response.toolCalls, preparedPrompt.tools, {
+      sessionId,
+      recordEvent: invocation.recordEvent,
+      signal,
+    })
     if (toolRun.kind === "cancelled") return endInvocation(invocation, "cancelled")
   }
 
@@ -210,7 +206,26 @@ async function executeTools(calls: ToolCall[], tools: Tool[], ctx: ToolContext):
 
   for (const call of calls) {
     if (isCancelled(ctx.signal)) return { kind: "cancelled", results }
+    await ctx.recordEvent?.("tool.started", {
+      call,
+      display: pendingDisplayForToolCall(call, tools),
+    })
     results.push(await executeToolCall(call, tools, ctx))
+    const result = results[results.length - 1]
+    if (result === undefined) continue
+    if (result.ok) {
+      await ctx.recordEvent?.("tool.completed", {
+        call: result.call,
+        display: result.display,
+        result: result.value,
+      })
+    } else {
+      await ctx.recordEvent?.("tool.failed", {
+        call: result.call,
+        display: result.display,
+        error: result.error,
+      })
+    }
   }
 
   return isCancelled(ctx.signal) ? { kind: "cancelled", results } : { kind: "completed", results }

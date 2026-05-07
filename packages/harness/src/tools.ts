@@ -13,18 +13,38 @@ export interface ToolContext {
   signal?: AbortSignal
 }
 
-export type ToolExecuteResult = { kind: "ok"; output: string } | { kind: "error"; message: string }
+export interface ToolDisplay<Args = unknown> {
+  pending: string
+  completed: string
+  failed?: string
+  target?(args: Args): string
+  summarize?(output: string, args: Args): string
+  summarizeError?(error: string, args: Args): string
+}
+
+export interface ToolDisplaySnapshot {
+  pending: string
+  completed: string
+  failed: string
+  target?: string
+  summary?: string
+}
+
+export type ToolExecuteResult =
+  | { kind: "ok"; output: string; summary?: string }
+  | { kind: "error"; message: string; summary?: string }
 
 export interface Tool<Args = unknown> {
   name: string
   description: string
   schema: ZodTypeAny
+  display?: ToolDisplay<Args>
   execute(args: Args, ctx: ToolContext): Promise<ToolExecuteResult>
 }
 
 export type ToolResult =
-  | { ok: true; call: ToolCall; value: string }
-  | { ok: false; call: ToolCall; error: string }
+  | { ok: true; call: ToolCall; display: ToolDisplaySnapshot; value: string }
+  | { ok: false; call: ToolCall; display: ToolDisplaySnapshot; error: string }
 
 const MAX_TOOL_OUTPUT_BYTES = 16 * 1024
 
@@ -49,7 +69,12 @@ export async function executeToolCall(
 ): Promise<ToolResult> {
   const tool = tools.find((t) => t.name === call.name)
   if (tool === undefined) {
-    return { ok: false, call, error: `tool not found: ${call.name}` }
+    return {
+      ok: false,
+      call,
+      display: fallbackDisplay(call),
+      error: `tool not found: ${call.name}`,
+    }
   }
   const parsed = tool.schema.safeParse(call.args)
   if (!parsed.success) {
@@ -59,17 +84,38 @@ export async function executeToolCall(
         return `${pathStr}: ${issue.message}`
       })
       .join("; ")
-    return { ok: false, call, error: `invalid args for ${call.name}: ${message}` }
+    return {
+      ok: false,
+      call,
+      display: fallbackDisplay(call),
+      error: `invalid args for ${call.name}: ${message}`,
+    }
   }
   try {
     const result = await tool.execute(parsed.data, ctx)
     if (result.kind === "ok") {
-      return { ok: true, call, value: truncateOutput(result.output) }
+      const value = truncateOutput(result.output)
+      return {
+        ok: true,
+        call,
+        display: completedDisplay(tool, parsed.data, value, result.summary),
+        value,
+      }
     }
-    return { ok: false, call, error: result.message }
+    return {
+      ok: false,
+      call,
+      display: failedDisplay(tool, parsed.data, result.message, result.summary),
+      error: result.message,
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    return { ok: false, call, error: `tool ${call.name} threw: ${message}` }
+    return {
+      ok: false,
+      call,
+      display: failedDisplay(tool, parsed.data, message),
+      error: `tool ${call.name} threw: ${message}`,
+    }
   }
 }
 
@@ -84,4 +130,67 @@ export async function executeToolCalls(
     results.push(await executeToolCall(call, tools, ctx))
   }
   return results
+}
+
+export function pendingDisplayForToolCall(call: ToolCall, tools: Tool[]): ToolDisplaySnapshot {
+  const tool = tools.find((candidate) => candidate.name === call.name)
+  if (tool === undefined) return fallbackDisplay(call)
+  const parsed = tool.schema.safeParse(call.args)
+  if (!parsed.success) return fallbackDisplay(call)
+  return baseDisplay(tool, parsed.data)
+}
+
+function completedDisplay<Args>(
+  tool: Tool<Args>,
+  args: Args,
+  output: string,
+  explicitSummary: string | undefined,
+): ToolDisplaySnapshot {
+  const display = baseDisplay(tool, args)
+  const summary = explicitSummary ?? tool.display?.summarize?.(output, args)
+  return summary === undefined ? display : { ...display, summary }
+}
+
+function failedDisplay<Args>(
+  tool: Tool<Args>,
+  args: Args,
+  error: string,
+  explicitSummary?: string,
+): ToolDisplaySnapshot {
+  const display = baseDisplay(tool, args)
+  const summary = explicitSummary ?? tool.display?.summarizeError?.(error, args)
+  return summary === undefined ? display : { ...display, summary }
+}
+
+function baseDisplay<Args>(tool: Tool<Args>, args: Args): ToolDisplaySnapshot {
+  const pending = tool.display?.pending ?? tool.name
+  const completed = tool.display?.completed ?? `${tool.name} ok`
+  const failed = tool.display?.failed ?? `${tool.name} failed`
+  const target = safeDisplayTarget(tool, args)
+  return target === undefined
+    ? { completed, failed, pending }
+    : { completed, failed, pending, target }
+}
+
+function safeDisplayTarget<Args>(tool: Tool<Args>, args: Args): string | undefined {
+  try {
+    const target = tool.display?.target?.(args).trim()
+    return target === undefined || target.length === 0 ? undefined : target
+  } catch {
+    return undefined
+  }
+}
+
+function fallbackDisplay(call: ToolCall): ToolDisplaySnapshot {
+  return {
+    completed: `${call.name} ok`,
+    failed: `${call.name} failed`,
+    pending: call.name,
+    target: argsPreview(call.args),
+  }
+}
+
+function argsPreview(args: unknown): string {
+  const preview = JSON.stringify(args) ?? ""
+  return preview.length > 180 ? `${preview.slice(0, 177)}...` : preview
 }

@@ -231,6 +231,7 @@ async function smokeCancelBetweenTools() {
         "invocation.received",
         "step.started",
         "model.completed",
+        "tool.started",
         "tool.completed",
         "agent.finished",
       ]),

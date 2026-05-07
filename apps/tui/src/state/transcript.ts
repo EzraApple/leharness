@@ -1,6 +1,6 @@
-import type { Event, ToolCall } from "@leharness/harness"
+import type { Event, ToolCall, ToolDisplaySnapshot } from "@leharness/harness"
 import { collapseSkillLoadHints } from "../utils/display.js"
-import { argsPreview, finishReason, summarize } from "../utils/format.js"
+import { finishReason, summarize } from "../utils/format.js"
 import type { Cell, ToolStatus, TranscriptState } from "./types.js"
 
 type CellInput = Omit<Cell, "id">
@@ -98,15 +98,20 @@ export function reduceEvent(state: TranscriptState, event: Event): TranscriptSta
       appendReasoning(next, event)
       commitAssistant(next, event)
       if (event.type === "model.cancelled") break
-      for (const call of readToolCalls(event.toolCalls)) {
-        const index = appendCellInline(next, {
-          kind: "tool",
-          status: "pending",
-          text: argsPreview(call.args),
-          title: call.name,
-        })
-        next.toolCellById.set(call.id, index)
-      }
+      for (const call of readToolCalls(event.toolCalls)) next.toolCellById.delete(call.id)
+      break
+    }
+    case "tool.started": {
+      const call = readToolCall(event.call)
+      if (call === undefined) break
+      const index = appendCellInline(next, {
+        display: readDisplay(event.display),
+        kind: "tool",
+        status: "pending",
+        text: "",
+        title: call.name,
+      })
+      next.toolCellById.set(call.id, index)
       break
     }
     case "tool.completed":
@@ -164,21 +169,25 @@ function commitAssistant(state: TranscriptState, event: Event): void {
 function completeTool(state: TranscriptState, event: Event, status: ToolStatus): void {
   const call = readToolCall(event.call)
   const output = status === "completed" ? String(event.result ?? "") : String(event.error ?? "")
+  const display = readDisplay(event.display)
+  const text = display?.summary ?? summarize(output, 8, 900)
   if (call?.id !== undefined) {
     const index = state.toolCellById.get(call.id)
     const cell = index === undefined ? undefined : state.cells[index]
     if (index !== undefined && cell !== undefined) {
       updateToolInline(state, index, {
+        display: display ?? cell.display,
         status,
-        text: `${argsPreview(call.args)}\n${summarize(output, 8, 900)}`,
+        text,
       })
       return
     }
   }
   pushCell(state, {
+    display,
     kind: status === "failed" ? "error" : "tool",
     status,
-    text: summarize(output, 8, 900),
+    text,
     title: call?.name ?? "tool",
   })
 }
@@ -189,6 +198,25 @@ function readToolCalls(value: unknown): ToolCall[] {
 
 function readToolCall(value: unknown): ToolCall | undefined {
   return isToolCall(value) ? value : undefined
+}
+
+function readDisplay(value: unknown): ToolDisplaySnapshot | undefined {
+  if (typeof value !== "object" || value === null) return undefined
+  const candidate = value as Record<string, unknown>
+  if (
+    typeof candidate.pending !== "string" ||
+    typeof candidate.completed !== "string" ||
+    typeof candidate.failed !== "string"
+  ) {
+    return undefined
+  }
+  return {
+    completed: candidate.completed,
+    failed: candidate.failed,
+    pending: candidate.pending,
+    summary: typeof candidate.summary === "string" ? candidate.summary : undefined,
+    target: typeof candidate.target === "string" ? candidate.target : undefined,
+  }
 }
 
 function isToolCall(value: unknown): value is ToolCall {
