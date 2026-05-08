@@ -10,7 +10,9 @@ import {
   modelSupportsReasoning,
   qualifiedModelId,
   type ReasoningEffort,
+  type RuntimeSettings,
   type Skill,
+  updateUserSettings,
 } from "@leharness/harness"
 import { Box, useApp, useInput, useStdout } from "ink"
 import { useEffect, useMemo, useRef, useState } from "react"
@@ -73,8 +75,8 @@ export function TuiApp({
   const [status, setStatus] = useState("idle")
   const [selectedProvider, setSelectedProvider] = useState(deps.provider)
   const [selectedModel, setSelectedModel] = useState(deps.model)
-  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort | undefined>(() =>
-    defaultReasoningEffortForModel(deps.model, deps.provider.name),
+  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort | undefined>(
+    () => deps.reasoningEffort ?? defaultReasoningEffortForModel(deps.model, deps.provider.name),
   )
   const [queuedMessages, setQueuedMessages] = useState<QueuedMessage[]>([])
   const [transcriptResetKey, setTranscriptResetKey] = useState(0)
@@ -101,6 +103,7 @@ export function TuiApp({
       provider: selectedProvider,
       model: selectedModel,
       reasoningEffort: currentModelSupportsReasoning ? reasoningEffort : undefined,
+      systemPrompt: deps.systemPrompt,
     }),
     [currentModelSupportsReasoning, deps, reasoningEffort, selectedModel, selectedProvider],
   )
@@ -311,6 +314,7 @@ export function TuiApp({
     setRunning(true)
     setStatus("running")
     const controller = new AbortController()
+    const invocationStartedAt = Date.now()
     const invocationId = invocationIdRef.current + 1
     invocationIdRef.current = invocationId
     abortRef.current = controller
@@ -326,7 +330,14 @@ export function TuiApp({
           if (invocationIdRef.current !== invocationId) return
           if (event.type === "step.started") setStatus(`step ${String(event.stepNumber ?? "?")}`)
           if (event.type === "agent.finished") setStatus("idle")
-          setTranscript((prev) => reduceEvent(prev, event))
+          setTranscript((prev) => {
+            const next = reduceEvent(prev, event)
+            if (event.type !== "agent.finished") return next
+            return appendCell(next, {
+              kind: "system",
+              text: `worked for ${formatElapsed(Date.now() - invocationStartedAt)}`,
+            })
+          })
         },
       })
     } catch (err) {
@@ -476,6 +487,11 @@ export function TuiApp({
     setSelectedModel(model.id)
     const nextEffort = defaultReasoningEffortForModel(model.id, model.provider)
     setReasoningEffort(nextEffort)
+    persistRuntimeSettings({
+      model: model.id,
+      provider: model.provider,
+      reasoningEffort: model.supportsReasoning ? nextEffort : undefined,
+    })
     setStatus("idle")
     setTranscript((prev) =>
       appendCell(prev, {
@@ -488,6 +504,11 @@ export function TuiApp({
 
   const setEffort = (effort: ReasoningEffort) => {
     setReasoningEffort(effort)
+    persistRuntimeSettings({
+      model: selectedModel,
+      provider: selectedProvider.name,
+      reasoningEffort: effort,
+    })
     setTranscript((prev) =>
       appendCell(prev, {
         kind: "system",
@@ -495,6 +516,18 @@ export function TuiApp({
         text: `Set ${qualifiedRuntime(selectedProvider.name, selectedModel)} effort to ${effort}.`,
       }),
     )
+  }
+
+  function persistRuntimeSettings(runtime: RuntimeSettings): void {
+    void updateUserSettings({ runtime }).catch((err: unknown) => {
+      setTranscript((prev) =>
+        appendCell(prev, {
+          kind: "error",
+          title: "settings",
+          text: err instanceof Error ? err.message : String(err),
+        }),
+      )
+    })
   }
 
   const selectPickerItem = () => {
@@ -641,6 +674,14 @@ export function TuiApp({
       )}
     </Box>
   )
+}
+
+function formatElapsed(ms: number): string {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000))
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  if (minutes === 0) return `${seconds}s`
+  return `${minutes}m ${seconds.toString().padStart(2, "0")}s`
 }
 
 function allModelChoices(currentProviderName: string, currentModel: string): ModelSpec[] {

@@ -57,7 +57,7 @@ export const editFileTool: Tool<EditFileArgs> = {
       return { kind: "error", message: `edit_file failed: ${message}` }
     }
 
-    const summary = editSummary(before, after, args.old_string, args.new_string)
+    const summary = editSummary(args.old_string, args.new_string)
     return {
       kind: "ok",
       output: `Edited ${args.path}\n${summary}`,
@@ -89,21 +89,52 @@ async function writeFileAtomic(target: string, content: string): Promise<void> {
   }
 }
 
-function editSummary(before: string, after: string, oldString: string, newString: string): string {
-  const removedLines = lineCount(oldString)
-  const addedLines = lineCount(newString)
-  return [
-    "1 replacement",
-    `+${addedLines} -${removedLines}`,
-    `${byteLength(before)} -> ${byteLength(after)} bytes`,
-  ].join(" · ")
+function editSummary(oldString: string, newString: string): string {
+  const { addedLines, removedLines } = replacementLineDelta(oldString, newString)
+  return formatLineChange(addedLines, removedLines)
 }
 
-function lineCount(value: string): number {
-  if (value.length === 0) return 0
-  return value.split("\n").length
+function replacementLineDelta(
+  oldString: string,
+  newString: string,
+): { addedLines: number; removedLines: number } {
+  const oldLines = splitLines(oldString)
+  const newLines = splitLines(newString)
+  let prefix = 0
+  while (
+    prefix < oldLines.length &&
+    prefix < newLines.length &&
+    oldLines[prefix] === newLines[prefix]
+  ) {
+    prefix += 1
+  }
+
+  let suffix = 0
+  while (
+    suffix < oldLines.length - prefix &&
+    suffix < newLines.length - prefix &&
+    oldLines[oldLines.length - 1 - suffix] === newLines[newLines.length - 1 - suffix]
+  ) {
+    suffix += 1
+  }
+
+  return {
+    addedLines: newLines.length - prefix - suffix,
+    removedLines: oldLines.length - prefix - suffix,
+  }
 }
 
-function byteLength(value: string): number {
-  return Buffer.byteLength(value, "utf8")
+function formatLineChange(addedLines: number, removedLines: number): string {
+  if (addedLines > 0 && removedLines === 0) return `Added ${plural(addedLines, "line")}`
+  if (removedLines > 0 && addedLines === 0) return `Removed ${plural(removedLines, "line")}`
+  return `Changed +${addedLines} -${removedLines} lines`
+}
+
+function splitLines(value: string): string[] {
+  if (value.length === 0) return []
+  return value.split("\n")
+}
+
+function plural(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`
 }

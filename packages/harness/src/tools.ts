@@ -163,13 +163,19 @@ function failedDisplay<Args>(
 }
 
 function baseDisplay<Args>(tool: Tool<Args>, args: Args): ToolDisplaySnapshot {
-  const pending = tool.display?.pending ?? tool.name
-  const completed = tool.display?.completed ?? `${tool.name} ok`
-  const failed = tool.display?.failed ?? `${tool.name} failed`
+  const { pending, completed, failed } = baseDisplayWithoutTarget(tool)
   const target = safeDisplayTarget(tool, args)
   return target === undefined
     ? { completed, failed, pending }
     : { completed, failed, pending, target }
+}
+
+function baseDisplayWithoutTarget(tool: Tool): ToolDisplaySnapshot {
+  return {
+    completed: tool.display?.completed ?? `${tool.name} ok`,
+    failed: tool.display?.failed ?? `${tool.name} failed`,
+    pending: tool.display?.pending ?? tool.name,
+  }
 }
 
 function safeDisplayTarget<Args>(tool: Tool<Args>, args: Args): string | undefined {
@@ -183,10 +189,16 @@ function safeDisplayTarget<Args>(tool: Tool<Args>, args: Args): string | undefin
 
 function fallbackDisplay(call: ToolCall): ToolDisplaySnapshot {
   return {
-    completed: `${call.name} ok`,
-    failed: `${call.name} failed`,
-    pending: call.name,
+    ...baseFallbackDisplay(call.name),
     target: argsPreview(call.args),
+  }
+}
+
+function baseFallbackDisplay(name: string): ToolDisplaySnapshot {
+  return {
+    completed: `${name} ok`,
+    failed: `${name} failed`,
+    pending: name,
   }
 }
 

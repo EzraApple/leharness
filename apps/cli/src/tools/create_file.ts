@@ -37,7 +37,7 @@ export const createFileTool: Tool<CreateFileArgs> = {
       }
     }
 
-    const summary = `${lineCount(args.content)} lines · ${byteLength(args.content)} bytes`
+    const summary = plural(lineCount(args.content), "line")
     return {
       kind: "ok",
       output: `Created ${args.path}\n${summary}`,
@@ -56,6 +56,6 @@ function lineCount(value: string): number {
   return value.split("\n").length
 }
 
-function byteLength(value: string): number {
-  return Buffer.byteLength(value, "utf8")
+function plural(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`
 }

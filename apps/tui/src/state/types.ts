@@ -15,8 +15,18 @@ export interface Cell {
 export interface TranscriptState {
   nextCellId: number
   cells: Cell[]
+  nextReadBatchId: number
   toolCellById: Map<string, number>
   activeAssistantIndex?: number
+  readBatchByCallId: Map<string, string>
+  readBatches: Map<string, ReadBatch>
+}
+
+export interface ReadBatch {
+  cellIndex?: number
+  completed: number
+  failed: boolean
+  total: number
 }
 
 export interface QueuedMessage {

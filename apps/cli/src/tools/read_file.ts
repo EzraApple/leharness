@@ -21,7 +21,7 @@ export const readFileTool: Tool<ReadFileArgs> = {
     completed: "read",
     failed: "could not read",
     target: (args) => args.path,
-    summarize: (output) => `${lineCount(output)} lines · ${byteLength(output)} bytes`,
+    summarize: (output) => plural(lineCount(output), "line"),
   },
   async execute(args, _ctx: ToolContext): Promise<ToolExecuteResult> {
     const target = path.resolve(process.cwd(), args.path)
@@ -40,6 +40,6 @@ function lineCount(value: string): number {
   return value.split("\n").length
 }
 
-function byteLength(value: string): number {
-  return Buffer.byteLength(value, "utf8")
+function plural(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`
 }

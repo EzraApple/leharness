@@ -1,14 +1,8 @@
 import { compact } from "../compaction/index.js"
 import type { Event } from "../events.js"
 import type { ReasoningEffort } from "../models.js"
-import {
-  buildInput,
-  buildRequest,
-  type CompactionOptions,
-  DEFAULT_SYSTEM_PROMPT,
-  type PromptInput,
-} from "../prompt.js"
-import type { Provider, ProviderResponse } from "../provider/index.js"
+import { buildInput, buildRequest, type CompactionOptions, type PromptInput } from "../prompt.js"
+import type { Provider, ProviderResponse, ToolCallDelta } from "../provider/index.js"
 import {
   createLoadSkillTool,
   discoverSkills,
@@ -34,7 +28,7 @@ export interface HarnessDeps {
   provider: Provider
   tools: Tool[]
   model: string
-  systemPrompt?: string
+  systemPrompt: string
   temperature?: number
   maxOutputTokens?: number
   maxSteps?: number
@@ -46,6 +40,7 @@ export interface HarnessDeps {
 export interface RunOptions {
   onText?: (delta: string) => void
   onReasoningText?: (delta: string) => void
+  onToolCallDelta?: (delta: ToolCallDelta) => void
   onEvent?: (event: Event) => void
   signal?: AbortSignal
 }
@@ -130,7 +125,7 @@ async function preparePrompt(
   deps: HarnessDeps,
   options: RunOptions,
 ): Promise<PreparedPrompt> {
-  const baseSystem = deps.systemPrompt ?? DEFAULT_SYSTEM_PROMPT
+  const baseSystem = deps.systemPrompt
   const skillConfig = deps.skills === false ? undefined : deps.skills
   let system = baseSystem
   let tools = deps.tools
@@ -166,6 +161,7 @@ async function preparePrompt(
       reasoningEffort: deps.reasoningEffort,
       onText: options.onText,
       onReasoningText: options.onReasoningText,
+      onToolCallDelta: options.onToolCallDelta,
       signal: options.signal,
       compaction: deps.compaction,
       recordEvent: invocation.recordEvent,
@@ -190,6 +186,14 @@ async function sendPrompt(
             if (isCancelled(signal)) return
             emittedText += delta
             forwardText(delta)
+          }
+    const forwardToolCallDelta = request.onToolCallDelta
+    request.onToolCallDelta =
+      forwardToolCallDelta === undefined
+        ? undefined
+        : (delta: ToolCallDelta) => {
+            if (isCancelled(signal)) return
+            forwardToolCallDelta(delta)
           }
     const response = await waitForProvider(() => provider.call(request), signal)
     return isCancelled(signal)

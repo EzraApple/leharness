@@ -1,6 +1,6 @@
 import { Box, Text, useInput } from "ink"
 import type { ReactNode } from "react"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 
 export function Prompt({
   input,
@@ -183,14 +183,46 @@ export function Footer({
         : queuedCount > 0
           ? "empty enter send queued"
           : "enter send"
+  const elapsed = useElapsedRunTime(running)
+  const statusParts = [status === "idle" ? undefined : status, elapsed].filter(
+    (part): part is string => part !== undefined && part.length > 0,
+  )
 
   return (
     <Box justifyContent="space-between">
       <Text color="gray">{action}</Text>
       <Text color="gray">
-        {status === "idle" ? "" : `${status} · `}esc abort · ctrl-c exit · terminal scrollback ·
-        /help
+        {statusParts.length === 0 ? "" : `${statusParts.join(" · ")} · `}esc abort · ctrl-c exit ·
+        terminal scrollback · /help
       </Text>
     </Box>
   )
+}
+
+function useElapsedRunTime(running: boolean): string | undefined {
+  const [startedAt, setStartedAt] = useState<number | undefined>()
+  const [now, setNow] = useState(() => Date.now())
+
+  useEffect(() => {
+    if (!running) {
+      setStartedAt(undefined)
+      return
+    }
+    const start = Date.now()
+    setStartedAt(start)
+    setNow(start)
+    const interval = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(interval)
+  }, [running])
+
+  if (!running || startedAt === undefined) return undefined
+  return `worked for ${formatElapsed(now - startedAt)}`
+}
+
+function formatElapsed(ms: number): string {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000))
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  if (minutes === 0) return `${seconds}s`
+  return `${minutes}m ${seconds.toString().padStart(2, "0")}s`
 }

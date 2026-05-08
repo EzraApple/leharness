@@ -7,6 +7,7 @@ import {
   ProviderError,
   type ProviderRequest,
   type ProviderResponse,
+  type ToolCallDelta,
 } from "./index.js"
 
 interface OpenAIToolCall {
@@ -102,7 +103,7 @@ export class OpenAICompatProvider implements Provider {
   }
 
   async call(req: ProviderRequest): Promise<ProviderResponse> {
-    if (req.onText) return this.callStreaming(req)
+    if (req.onText || req.onReasoningText || req.onToolCallDelta) return this.callStreaming(req)
     return this.callNonStreaming(req)
   }
 
@@ -244,6 +245,7 @@ export class OpenAICompatProvider implements Provider {
             if (tc.id) slot.id = tc.id
             if (tc.function?.name) slot.function.name += tc.function.name
             if (tc.function?.arguments) slot.function.arguments += tc.function.arguments
+            emitToolCallDelta(req, idx, slot, tc.function?.arguments)
           }
         }
         if (choice.finish_reason) finishReason = choice.finish_reason
@@ -286,6 +288,20 @@ function parseToolCall(tc: OpenAIToolCall): ToolCall {
     args = { __raw: tc.function.arguments, __parseError: true }
   }
   return { id: tc.id, name: tc.function.name, args }
+}
+
+function emitToolCallDelta(
+  req: ProviderRequest,
+  index: number,
+  slot: OpenAIToolCall,
+  argumentsDelta: string | undefined,
+): void {
+  const delta: ToolCallDelta = { index }
+  if (slot.id.length > 0) delta.id = slot.id
+  if (slot.function.name.length > 0) delta.name = slot.function.name
+  if (argumentsDelta !== undefined) delta.argumentsDelta = argumentsDelta
+  if (slot.function.arguments.length > 0) delta.argumentsText = slot.function.arguments
+  req.onToolCallDelta?.(delta)
 }
 
 function mapStopReason(reason: string | null | undefined): ProviderResponse["stopReason"] {

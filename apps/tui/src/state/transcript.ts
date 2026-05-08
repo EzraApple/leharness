@@ -1,7 +1,7 @@
 import type { Event, ToolCall, ToolDisplaySnapshot } from "@leharness/harness"
 import { collapseSkillLoadHints } from "../utils/display.js"
 import { finishReason, summarize } from "../utils/format.js"
-import type { Cell, ToolStatus, TranscriptState } from "./types.js"
+import type { Cell, ReadBatch, ToolStatus, TranscriptState } from "./types.js"
 
 type CellInput = Omit<Cell, "id">
 
@@ -10,6 +10,9 @@ export function initialTranscript(): TranscriptState {
     activeAssistantIndex: undefined,
     cells: [],
     nextCellId: 0,
+    nextReadBatchId: 0,
+    readBatchByCallId: new Map(),
+    readBatches: new Map(),
     toolCellById: new Map(),
   }
 }
@@ -30,18 +33,6 @@ function appendCellInline(state: TranscriptState, cell: CellInput): number {
   const index = state.cells.length
   pushCell(state, cell)
   return index
-}
-
-function insertCellInline(state: TranscriptState, index: number, cell: CellInput): void {
-  const id = `cell-${state.nextCellId}`
-  state.nextCellId += 1
-  state.cells.splice(index, 0, { id, ...cell })
-  if (state.activeAssistantIndex !== undefined && state.activeAssistantIndex >= index) {
-    state.activeAssistantIndex += 1
-  }
-  for (const [toolCallId, toolIndex] of state.toolCellById) {
-    if (toolIndex >= index) state.toolCellById.set(toolCallId, toolIndex + 1)
-  }
 }
 
 function updateCellInline(state: TranscriptState, index: number, update: Partial<CellInput>): void {
@@ -69,6 +60,9 @@ function cloneTranscript(state: TranscriptState): TranscriptState {
     activeAssistantIndex: state.activeAssistantIndex,
     cells: state.cells.map((cell) => ({ ...cell })),
     nextCellId: state.nextCellId,
+    nextReadBatchId: state.nextReadBatchId,
+    readBatchByCallId: new Map(state.readBatchByCallId),
+    readBatches: new Map([...state.readBatches].map(([key, batch]) => [key, { ...batch }])),
     toolCellById: new Map(state.toolCellById),
   }
 }
@@ -95,15 +89,25 @@ export function reduceEvent(state: TranscriptState, event: Event): TranscriptSta
       break
     case "model.completed":
     case "model.cancelled": {
-      appendReasoning(next, event)
       commitAssistant(next, event)
-      if (event.type === "model.cancelled") break
-      for (const call of readToolCalls(event.toolCalls)) next.toolCellById.delete(call.id)
+      if (event.type === "model.completed") prepareReadBatches(next, readToolCalls(event.toolCalls))
       break
     }
     case "tool.started": {
       const call = readToolCall(event.call)
       if (call === undefined) break
+      if (startReadBatchTool(next, call)) break
+      const existingIndex = next.toolCellById.get(call.id)
+      if (existingIndex !== undefined && next.cells[existingIndex] !== undefined) {
+        updateToolInline(next, existingIndex, {
+          display: readDisplay(event.display),
+          kind: "tool",
+          status: "pending",
+          text: "",
+          title: call.name,
+        })
+        break
+      }
       const index = appendCellInline(next, {
         display: readDisplay(event.display),
         kind: "tool",
@@ -141,21 +145,6 @@ export function reduceEvent(state: TranscriptState, event: Event): TranscriptSta
   return next
 }
 
-function appendReasoning(state: TranscriptState, event: Event): void {
-  const reasoningText = String(event.reasoningText ?? "").trim()
-  if (reasoningText.length === 0) return
-  const cell: CellInput = {
-    kind: "system",
-    text: summarize(reasoningText, 10, 1200),
-    title: "reasoning",
-  }
-  if (state.activeAssistantIndex === undefined) {
-    pushCell(state, cell)
-    return
-  }
-  insertCellInline(state, state.activeAssistantIndex, cell)
-}
-
 function commitAssistant(state: TranscriptState, event: Event): void {
   const text = String(event.text ?? "")
   if (state.activeAssistantIndex === undefined) {
@@ -170,6 +159,7 @@ function completeTool(state: TranscriptState, event: Event, status: ToolStatus):
   const call = readToolCall(event.call)
   const output = status === "completed" ? String(event.result ?? "") : String(event.error ?? "")
   const display = readDisplay(event.display)
+  if (call !== undefined && completeReadBatchTool(state, call, display, output, status)) return
   const text = display?.summary ?? summarize(output, 8, 900)
   if (call?.id !== undefined) {
     const index = state.toolCellById.get(call.id)
@@ -190,6 +180,95 @@ function completeTool(state: TranscriptState, event: Event, status: ToolStatus):
     text,
     title: call?.name ?? "tool",
   })
+}
+
+function prepareReadBatches(state: TranscriptState, calls: ToolCall[]): void {
+  let run: ToolCall[] = []
+  for (const call of calls) {
+    if (call.name === "read_file") {
+      run.push(call)
+      continue
+    }
+    registerReadBatch(state, run)
+    run = []
+  }
+  registerReadBatch(state, run)
+}
+
+function registerReadBatch(state: TranscriptState, calls: ToolCall[]): void {
+  if (calls.length < 2) return
+  const key = `read-batch-${state.nextReadBatchId}`
+  state.nextReadBatchId += 1
+  state.readBatches.set(key, {
+    completed: 0,
+    failed: false,
+    total: calls.length,
+  })
+  for (const call of calls) state.readBatchByCallId.set(call.id, key)
+}
+
+function startReadBatchTool(state: TranscriptState, call: ToolCall): boolean {
+  const batch = readBatchForCall(state, call)
+  if (batch === undefined) return false
+  if (batch.cellIndex !== undefined && state.cells[batch.cellIndex] !== undefined) return true
+  batch.cellIndex = appendCellInline(state, {
+    display: readBatchDisplay(batch),
+    kind: "tool",
+    status: "pending",
+    text: "",
+    title: "read_file_batch",
+  })
+  return true
+}
+
+function completeReadBatchTool(
+  state: TranscriptState,
+  call: ToolCall,
+  display: ToolDisplaySnapshot | undefined,
+  output: string,
+  status: ToolStatus,
+): boolean {
+  const batch = readBatchForCall(state, call)
+  if (batch === undefined) return false
+  if (batch.cellIndex === undefined || state.cells[batch.cellIndex] === undefined) {
+    startReadBatchTool(state, call)
+  }
+  if (status === "completed") batch.completed += 1
+  if (status === "failed") batch.failed = true
+  const done = batch.failed || batch.completed >= batch.total
+  const text = status === "failed" ? (display?.summary ?? summarize(output, 4, 400)) : ""
+  const index = batch.cellIndex
+  if (index !== undefined) {
+    updateToolInline(state, index, {
+      display: readBatchDisplay(batch),
+      status: batch.failed ? "failed" : done ? "completed" : "pending",
+      text,
+    })
+  }
+  return true
+}
+
+function readBatchForCall(state: TranscriptState, call: ToolCall): ReadBatch | undefined {
+  const key = state.readBatchByCallId.get(call.id)
+  return key === undefined ? undefined : state.readBatches.get(key)
+}
+
+function readBatchDisplay(batch: ReadBatch): ToolDisplaySnapshot {
+  return {
+    completed: "read",
+    failed: "could not read",
+    pending: "reading",
+    target: readBatchTarget(batch),
+  }
+}
+
+function readBatchTarget(batch: ReadBatch): string {
+  if (batch.completed >= batch.total) return plural(batch.total, "file")
+  return "files"
+}
+
+function plural(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`
 }
 
 function readToolCalls(value: unknown): ToolCall[] {

@@ -12,6 +12,8 @@ interface TranscriptRow {
   backgroundColor?: string
   color?: string
   id: string
+  marker?: string
+  markerColor?: string
   spinner?: boolean
   text: string
 }
@@ -43,17 +45,8 @@ export function Transcript({
     [liveCells, running, transcript],
   )
   const staticItems = useMemo<StaticTranscriptItem[]>(
-    () => [
-      {
-        deps,
-        id: "session-header",
-        kind: "header",
-        priorEventCount,
-        sessionId,
-      },
-      ...committedCells.map((cell): StaticTranscriptItem => ({ cell, kind: "cell" })),
-    ],
-    [committedCells, deps, priorEventCount, sessionId],
+    () => committedCells.map((cell): StaticTranscriptItem => ({ cell, kind: "cell" })),
+    [committedCells],
   )
   const liveRows = useMemo(
     () =>
@@ -67,25 +60,20 @@ export function Transcript({
 
   return (
     <Box flexDirection="column" marginTop={1}>
+      <SessionHeader
+        deps={deps}
+        priorEventCount={priorEventCount}
+        sessionId={sessionId}
+        width={width - 2}
+      />
       <Static items={staticItems} key={resetKey}>
         {(item, index) => {
-          if (item.kind === "header") {
-            return (
-              <SessionHeader
-                deps={item.deps}
-                key={item.id}
-                priorEventCount={item.priorEventCount}
-                sessionId={item.sessionId}
-                width={width - 2}
-              />
-            )
-          }
           return (
             <TranscriptCell
               cell={item.cell}
               key={item.cell.id}
               running={false}
-              transcriptIndex={index - 1}
+              transcriptIndex={index}
               width={bodyWidth}
             />
           )
@@ -98,18 +86,10 @@ export function Transcript({
   )
 }
 
-type StaticTranscriptItem =
-  | {
-      deps: HarnessDeps
-      id: string
-      kind: "header"
-      priorEventCount: number
-      sessionId: string
-    }
-  | {
-      cell: Cell
-      kind: "cell"
-    }
+type StaticTranscriptItem = {
+  cell: Cell
+  kind: "cell"
+}
 
 function TranscriptCell({
   cell,
@@ -136,6 +116,7 @@ function TranscriptRowText({ row }: { row: TranscriptRow }) {
   if (row.spinner === true) {
     return (
       <Text backgroundColor={row.backgroundColor} color={row.color}>
+        {row.marker === undefined ? null : <Text color={row.markerColor}>{row.marker}</Text>}
         {row.text}
         <Text color="cyan">
           <Spinner type="dots" />
@@ -146,6 +127,7 @@ function TranscriptRowText({ row }: { row: TranscriptRow }) {
 
   return (
     <Text backgroundColor={row.backgroundColor} color={row.color}>
+      {row.marker === undefined ? null : <Text color={row.markerColor}>{row.marker}</Text>}
       {row.text}
     </Text>
   )
@@ -202,58 +184,72 @@ function buildRows(
     const transcriptIndex = (options.startIndex ?? 0) + index
     if (cell.kind === "user") {
       if (transcriptIndex > 0) pushBlank(rows, cell.id)
-      pushRailedWrapped(rows, cell, cell.text, options.width, "cyan", "#1c1c1c")
+      pushUserWrapped(rows, cell, cell.text, options.width)
     } else if (cell.kind === "assistant") {
       pushBlank(rows, cell.id)
       const text = cell.text.trim()
       if (text.length === 0) {
         if (options.running) {
-          pushThinking(rows, cell)
+          pushThinking(rows, cell, options.width)
         } else {
-          pushRailedWrapped(rows, cell, " ", options.width, "gray")
+          pushDottedWrapped(rows, cell, " ", options.width, "gray", "gray")
         }
       } else {
-        pushRailedMarkdown(rows, cell, text, options.width)
+        pushDottedMarkdown(rows, cell, text, options.width)
       }
     } else if (cell.kind === "tool") {
       pushTool(rows, cell, options.width)
     } else if (cell.kind === "error") {
       pushBlank(rows, cell.id)
-      pushRailedWrapped(
+      pushDottedWrapped(
         rows,
         cell,
         `${cell.title ?? ""}\n${cell.text}`.trim(),
         options.width,
         "red",
+        "red",
       )
     } else {
-      pushRailedWrapped(rows, cell, cell.text.trim(), options.width, "gray")
+      pushDottedWrapped(rows, cell, cell.text.trim(), options.width, "gray", "gray")
     }
   }
   return rows
 }
 
-function pushThinking(rows: TranscriptRow[], cell: Cell): void {
-  const prefix = "┃"
-  pushLine(rows, cell, "thinking", prefix, "gray", undefined, true)
+function pushThinking(rows: TranscriptRow[], cell: Cell, width: number): void {
+  pushDottedWrapped(rows, cell, "thinking", width, "gray", "gray", undefined, true)
+}
+
+function pushUserWrapped(rows: TranscriptRow[], cell: Cell, text: string, width: number): void {
+  const prefix = "┃ "
+  const bodyWidth = Math.max(8, width - visibleWidth(prefix))
+  for (const [index, line] of wrapText(text, bodyWidth).entries()) {
+    const rowText = `${prefix}${line}`
+    pushLine(rows, cell, `user-${index}`, padToWidth(rowText, width), undefined, "#2a2a2a")
+  }
 }
 
 function pushTool(rows: TranscriptRow[], cell: Cell, width: number): void {
   const title = renderToolDisplayTitle(cell)
   if (cell.status === "pending") {
-    pushRailedWrapped(rows, cell, title, width, "yellow")
+    pushPendingTool(rows, cell, title, width)
     return
   }
 
   const failed = cell.status === "failed"
   pushBlank(rows, cell.id)
-  pushRailedWrapped(
+  pushDottedWrapped(
     rows,
     cell,
     [title, cell.text.trim()].filter((part) => part.length > 0).join("\n"),
     width,
+    failed ? "red" : "green",
     failed ? "red" : "gray",
   )
+}
+
+function pushPendingTool(rows: TranscriptRow[], cell: Cell, text: string, width: number): void {
+  pushDottedWrapped(rows, cell, text, width, "yellow", "yellow", undefined, true, "pending")
 }
 
 function renderToolDisplayTitle(cell: Cell): string {
@@ -273,28 +269,49 @@ function renderToolDisplayTitle(cell: Cell): string {
   return [verb, display.target].filter((part) => part !== undefined && part.length > 0).join(" ")
 }
 
-function pushRailedWrapped(
+function pushDottedWrapped(
   rows: TranscriptRow[],
   cell: Cell,
   text: string,
   width: number,
+  markerColor?: string,
   color?: string,
   backgroundColor?: string,
+  spinner?: boolean,
+  partPrefix = "dot",
 ): void {
-  const prefix = "┃ "
-  const bodyWidth = Math.max(8, width - visibleWidth(prefix))
+  const markerWidth = visibleWidth("● ")
+  const bodyWidth = Math.max(8, width - markerWidth)
   for (const [index, line] of wrapText(text, bodyWidth).entries()) {
-    const rowText = `${prefix}${line}`
-    pushLine(rows, cell, `rail-${index}`, padToWidth(rowText, width), color, backgroundColor)
+    pushLine(
+      rows,
+      cell,
+      `${partPrefix}-${index}`,
+      padToWidth(line, bodyWidth),
+      color,
+      backgroundColor,
+      spinner && index === 0,
+      index === 0 ? "● " : "  ",
+      markerColor,
+    )
   }
 }
 
-function pushRailedMarkdown(rows: TranscriptRow[], cell: Cell, text: string, width: number): void {
-  const prefix = "┃ "
-  const bodyWidth = Math.max(8, width - visibleWidth(prefix))
+function pushDottedMarkdown(rows: TranscriptRow[], cell: Cell, text: string, width: number): void {
+  const markerWidth = visibleWidth("● ")
+  const bodyWidth = Math.max(8, width - markerWidth)
   const rendered = renderMarkdown(text, bodyWidth)
   for (const [index, line] of wrapText(rendered, bodyWidth).entries()) {
-    pushLine(rows, cell, `markdown-${index}`, `${prefix}${line}`)
+    pushLine(
+      rows,
+      cell,
+      `markdown-${index}`,
+      line,
+      undefined,
+      undefined,
+      false,
+      index === 0 ? "● " : "  ",
+    )
   }
 }
 
@@ -310,8 +327,18 @@ function pushLine(
   color?: string,
   backgroundColor?: string,
   spinner?: boolean,
+  marker?: string,
+  markerColor?: string,
 ): void {
-  rows.push({ backgroundColor, color, id: `${cell.id}:${part}:${rows.length}`, spinner, text })
+  rows.push({
+    backgroundColor,
+    color,
+    id: `${cell.id}:${part}:${rows.length}`,
+    marker,
+    markerColor,
+    spinner,
+    text,
+  })
 }
 
 function visibleWidth(text: string): number {

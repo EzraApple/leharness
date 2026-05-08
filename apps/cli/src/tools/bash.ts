@@ -11,7 +11,7 @@ type BashArgs = z.infer<typeof bashArgs>
 export const bashTool: Tool<BashArgs> = {
   name: "bash",
   description:
-    "Execute a shell command and return its combined stdout+stderr plus exit code. Blocking — waits for the command to finish. No timeout in MVP, so do not run interactive or long-running commands.",
+    "Execute a shell command and return its combined stdout+stderr plus exit code. Use for directory listing, searching (prefer rg), git, tests, builds, and other shell work. Blocking — waits for the command to finish. No timeout in MVP, so do not run interactive or long-running commands.",
   schema: bashArgs,
   display: {
     pending: "running",

@@ -32,7 +32,7 @@ async function smokeSuccessfulCreate(): Promise<void> {
 
   assert.equal(result.kind, "ok")
   assert.equal(await fs.readFile("created/note.txt", "utf8"), "hello\nworld\n")
-  assert.equal(result.summary, "3 lines · 12 bytes")
+  assert.equal(result.summary, "3 lines")
 }
 
 async function smokeExistingCreateFailure(): Promise<void> {
@@ -56,7 +56,7 @@ async function smokeSuccessfulEdit(): Promise<void> {
 
   assert.equal(result.kind, "ok")
   assert.equal(await fs.readFile("one.txt", "utf8"), "alpha\nnew\nomega\n")
-  assert.match(result.summary ?? "", /1 replacement/)
+  assert.match(result.summary ?? "", /Changed \+1 -1 lines/)
 }
 
 async function smokeNoMatchFailure(): Promise<void> {
@@ -120,6 +120,7 @@ async function smokeInvocationDisplay(): Promise<void> {
   const events = await runInvocation("edit-display-smoke", "edit invoke.txt", {
     model: "fake",
     provider,
+    systemPrompt: "smoke edit display",
     tools: [createFileTool, editFileTool],
   })
 
@@ -129,5 +130,5 @@ async function smokeInvocationDisplay(): Promise<void> {
   assert.equal(completed[0]?.display?.target, "invoke.txt")
   assert.equal(completed[1]?.display?.completed, "edited")
   assert.equal(completed[1]?.display?.target, "invoke.txt")
-  assert.match(String(completed[1]?.display?.summary ?? ""), /1 replacement/)
+  assert.match(String(completed[1]?.display?.summary ?? ""), /Changed \+1 -1 lines/)
 }
