@@ -1,14 +1,8 @@
 import { compact } from "../compaction/index.js"
 import type { Event } from "../events.js"
 import type { ReasoningEffort } from "../models.js"
-import {
-  buildInput,
-  buildRequest,
-  type CompactionOptions,
-  DEFAULT_SYSTEM_PROMPT,
-  type PromptInput,
-} from "../prompt.js"
-import type { Provider, ProviderResponse } from "../provider/index.js"
+import { buildInput, buildRequest, type CompactionOptions, type PromptInput } from "../prompt.js"
+import type { Provider, ProviderResponse, ToolCallDelta } from "../provider/index.js"
 import {
   createLoadSkillTool,
   discoverSkills,
@@ -20,6 +14,7 @@ import {
 } from "../skills.js"
 import {
   executeToolCall,
+  pendingDisplayForToolCall,
   type Tool,
   type ToolCall,
   type ToolContext,
@@ -33,7 +28,7 @@ export interface HarnessDeps {
   provider: Provider
   tools: Tool[]
   model: string
-  systemPrompt?: string
+  systemPrompt: string
   temperature?: number
   maxOutputTokens?: number
   maxSteps?: number
@@ -45,6 +40,7 @@ export interface HarnessDeps {
 export interface RunOptions {
   onText?: (delta: string) => void
   onReasoningText?: (delta: string) => void
+  onToolCallDelta?: (delta: ToolCallDelta) => void
   onEvent?: (event: Event) => void
   signal?: AbortSignal
 }
@@ -112,16 +108,11 @@ export async function runInvocation(
       return endInvocation(invocation, "no_tool_calls")
     }
 
-    const ctx: ToolContext = { sessionId, recordEvent: invocation.recordEvent, signal }
-    const toolRun = await executeTools(promptResult.response.toolCalls, preparedPrompt.tools, ctx)
-    for (const result of toolRun.results) {
-      if (result.ok) {
-        await invocation.recordEvent("tool.completed", { call: result.call, result: result.value })
-      } else {
-        await invocation.recordEvent("tool.failed", { call: result.call, error: result.error })
-      }
-    }
-
+    const toolRun = await executeTools(promptResult.response.toolCalls, preparedPrompt.tools, {
+      sessionId,
+      recordEvent: invocation.recordEvent,
+      signal,
+    })
     if (toolRun.kind === "cancelled") return endInvocation(invocation, "cancelled")
   }
 
@@ -134,7 +125,7 @@ async function preparePrompt(
   deps: HarnessDeps,
   options: RunOptions,
 ): Promise<PreparedPrompt> {
-  const baseSystem = deps.systemPrompt ?? DEFAULT_SYSTEM_PROMPT
+  const baseSystem = deps.systemPrompt
   const skillConfig = deps.skills === false ? undefined : deps.skills
   let system = baseSystem
   let tools = deps.tools
@@ -170,6 +161,7 @@ async function preparePrompt(
       reasoningEffort: deps.reasoningEffort,
       onText: options.onText,
       onReasoningText: options.onReasoningText,
+      onToolCallDelta: options.onToolCallDelta,
       signal: options.signal,
       compaction: deps.compaction,
       recordEvent: invocation.recordEvent,
@@ -195,6 +187,14 @@ async function sendPrompt(
             emittedText += delta
             forwardText(delta)
           }
+    const forwardToolCallDelta = request.onToolCallDelta
+    request.onToolCallDelta =
+      forwardToolCallDelta === undefined
+        ? undefined
+        : (delta: ToolCallDelta) => {
+            if (isCancelled(signal)) return
+            forwardToolCallDelta(delta)
+          }
     const response = await waitForProvider(() => provider.call(request), signal)
     return isCancelled(signal)
       ? { kind: "cancelled", text: emittedText }
@@ -210,7 +210,26 @@ async function executeTools(calls: ToolCall[], tools: Tool[], ctx: ToolContext):
 
   for (const call of calls) {
     if (isCancelled(ctx.signal)) return { kind: "cancelled", results }
+    await ctx.recordEvent?.("tool.started", {
+      call,
+      display: pendingDisplayForToolCall(call, tools),
+    })
     results.push(await executeToolCall(call, tools, ctx))
+    const result = results[results.length - 1]
+    if (result === undefined) continue
+    if (result.ok) {
+      await ctx.recordEvent?.("tool.completed", {
+        call: result.call,
+        display: result.display,
+        result: result.value,
+      })
+    } else {
+      await ctx.recordEvent?.("tool.failed", {
+        call: result.call,
+        display: result.display,
+        error: result.error,
+      })
+    }
   }
 
   return isCancelled(ctx.signal) ? { kind: "cancelled", results } : { kind: "completed", results }

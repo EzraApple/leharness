@@ -55,7 +55,7 @@ await provider.call({
       role: "assistant",
       content: "I need a tool.",
       reasoningText: "must inspect files",
-      toolCalls: [{ id: "call_1", name: "list_dir", args: { path: "." } }],
+      toolCalls: [{ id: "call_1", name: "bash", args: { command: "ls" } }],
     },
     { role: "tool", toolCallId: "call_1", content: "README.md" },
     { role: "user", content: "continue" },

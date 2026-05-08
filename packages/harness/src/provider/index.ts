@@ -12,6 +12,14 @@ export interface HarnessTool {
   schemaJson: Record<string, unknown>
 }
 
+export interface ToolCallDelta {
+  index: number
+  id?: string
+  name?: string
+  argumentsDelta?: string
+  argumentsText?: string
+}
+
 export interface ProviderRequest {
   model: string
   system?: string
@@ -22,6 +30,7 @@ export interface ProviderRequest {
   reasoningEffort?: ReasoningEffort
   onText?: (delta: string) => void
   onReasoningText?: (delta: string) => void
+  onToolCallDelta?: (delta: ToolCallDelta) => void
   signal?: AbortSignal
 }
 

@@ -12,6 +12,7 @@ function assert(cond, msg) {
 
 const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "leharness-smoke-invocation-control-"))
 process.env.LEHARNESS_HOME = tmp
+const systemPrompt = "smoke invocation control"
 
 await smokeMaxSteps()
 await smokeModelFailure()
@@ -39,6 +40,7 @@ async function smokeMaxSteps() {
     provider: loopingProvider,
     tools: [],
     model: "fake",
+    systemPrompt,
     maxSteps: 2,
   })
 
@@ -68,6 +70,7 @@ async function smokeModelFailure() {
     provider: failingProvider,
     tools: [],
     model: "fake",
+    systemPrompt,
   })
 
   const failed = events.find((event) => event.type === "model.failed")
@@ -97,7 +100,7 @@ async function smokePreCancelled() {
   const events = await runInvocation(
     "smoke-pre-cancelled",
     "cancelled before first step",
-    { provider, tools: [], model: "fake" },
+    { provider, tools: [], model: "fake", systemPrompt },
     { signal: controller.signal },
   )
 
@@ -138,7 +141,7 @@ async function smokeCancelDuringProvider() {
   const run = runInvocation(
     "smoke-in-flight-cancelled",
     "cancel while provider is running",
-    { provider, tools: [], model: "fake" },
+    { provider, tools: [], model: "fake", systemPrompt },
     { onText: (delta) => textDeltas.push(delta), signal: controller.signal },
   )
   await started
@@ -219,7 +222,7 @@ async function smokeCancelBetweenTools() {
   const events = await runInvocation(
     "smoke-cancel-between-tools",
     "cancel between tools",
-    { provider, tools, model: "fake" },
+    { provider, tools, model: "fake", systemPrompt },
     { signal: controller.signal },
   )
 
@@ -231,6 +234,7 @@ async function smokeCancelBetweenTools() {
         "invocation.received",
         "step.started",
         "model.completed",
+        "tool.started",
         "tool.completed",
         "agent.finished",
       ]),

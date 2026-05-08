@@ -11,8 +11,15 @@ type BashArgs = z.infer<typeof bashArgs>
 export const bashTool: Tool<BashArgs> = {
   name: "bash",
   description:
-    "Execute a shell command and return its combined stdout+stderr plus exit code. Blocking — waits for the command to finish. No timeout in MVP, so do not run interactive or long-running commands.",
+    "Execute a shell command and return its combined stdout+stderr plus exit code. Use for directory listing, searching (prefer rg), git, tests, builds, and other shell work. Blocking — waits for the command to finish. No timeout in MVP, so do not run interactive or long-running commands.",
   schema: bashArgs,
+  display: {
+    pending: "running",
+    completed: "ran",
+    failed: "command failed",
+    target: (args) => args.command,
+    summarize: (output) => summarizeCommand(output),
+  },
   async execute(args, _ctx: ToolContext): Promise<ToolExecuteResult> {
     // TODO (2026-04-22): no timeout — interactive/long-running commands block the loop. Add a configurable timeout when the CLI can surface + approve long-running tool calls.
     // TODO (2026-04-22): stdout and stderr are concatenated post-exit. Interleaving them in chronological order needs a pty or per-chunk timestamps; not worth it yet.
@@ -38,4 +45,19 @@ export const bashTool: Tool<BashArgs> = {
       })
     })
   },
+}
+
+function summarizeCommand(output: string): string {
+  const exit = /\[exit: (\d+)\]/.exec(output)?.[1] ?? "?"
+  const body = output
+    .split("\n")
+    .filter((line) => !line.startsWith("$ ") && !line.startsWith("[exit:"))
+    .join("\n")
+    .trim()
+  return `exit ${exit} · ${lineCount(body)} lines`
+}
+
+function lineCount(value: string): number {
+  if (value.length === 0) return 0
+  return value.split("\n").length
 }

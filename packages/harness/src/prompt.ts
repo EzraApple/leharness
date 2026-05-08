@@ -1,13 +1,16 @@
 import { type ZodTypeAny, z } from "zod"
 import type { Event, RecordEvent } from "./events.js"
 import type { ReasoningEffort } from "./models.js"
-import type { HarnessMessage, HarnessTool, Provider, ProviderRequest } from "./provider/index.js"
+import type {
+  HarnessMessage,
+  HarnessTool,
+  Provider,
+  ProviderRequest,
+  ToolCallDelta,
+} from "./provider/index.js"
 import type { Tool, ToolCall } from "./tools.js"
 
 export type { RecordEvent } from "./events.js"
-
-export const DEFAULT_SYSTEM_PROMPT =
-  "You are a helpful coding assistant operating inside a harness. You have access to tools when provided. Call tools when you need information or actions; respond directly when you have what you need. Stop calling tools when the task is complete and reply with a short summary."
 
 export interface BuildPromptOptions {
   model: string
@@ -17,6 +20,7 @@ export interface BuildPromptOptions {
   reasoningEffort?: ReasoningEffort
   onText?: (delta: string) => void
   onReasoningText?: (delta: string) => void
+  onToolCallDelta?: (delta: ToolCallDelta) => void
   signal?: AbortSignal
 }
 
@@ -70,6 +74,7 @@ export function buildInput(
     reasoningEffort: options.reasoningEffort,
     onText: options.onText,
     onReasoningText: options.onReasoningText,
+    onToolCallDelta: options.onToolCallDelta,
     signal: options.signal,
     sessionId: options.sessionId,
     provider: options.provider,
@@ -89,6 +94,7 @@ export function buildRequest(input: PromptInput): ProviderRequest {
     reasoningEffort: input.reasoningEffort,
     onText: input.onText,
     onReasoningText: input.onReasoningText,
+    onToolCallDelta: input.onToolCallDelta,
     signal: input.signal,
   }
 }

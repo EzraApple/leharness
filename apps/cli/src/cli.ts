@@ -8,9 +8,11 @@ import {
   defaultModelFor,
   type HarnessDeps,
   loadEvents,
+  loadUserSettings,
   type Provider,
   resolveLeharnessHome,
   runInvocation,
+  type UserSettings,
 } from "@leharness/harness"
 import { runTui } from "@leharness/tui"
 import { ulid } from "ulid"
@@ -18,6 +20,8 @@ import { LiveRenderer } from "./render.js"
 import { builtinTools } from "./tools/index.js"
 
 const cliVersion = readCliVersion()
+const CLI_SYSTEM_PROMPT =
+  "You are a concise coding assistant running in a terminal harness. Use tools only when needed. Use bash for directory listing, searching (prefer rg), git, tests, builds, and shell work. Use read_file for file contents, edit_file for exact replacements, and create_file for new files. Do not narrate routine tool-use steps. Finish with a concise summary of what changed or what you found."
 
 export interface ParsedArgs {
   mode: "one_shot" | "minimal" | "tui"
@@ -64,18 +68,24 @@ export async function main(argv: string[]): Promise<number> {
     return 0
   }
 
-  const providerName = args.provider ?? process.env.LEHARNESS_PROVIDER ?? "ollama"
-  const modelName = args.model ?? process.env.LEHARNESS_MODEL ?? defaultModelFor(providerName)
+  const settings = await loadUserSettings()
+  const runtime = resolveRuntime(args, settings)
 
   let provider: Provider
   try {
-    provider = buildProvider(providerName)
+    provider = buildProvider(runtime.provider)
   } catch (err) {
     process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`)
     return 1
   }
 
-  const deps: HarnessDeps = { provider, tools: builtinTools, model: modelName }
+  const deps: HarnessDeps = {
+    systemPrompt: CLI_SYSTEM_PROMPT,
+    provider,
+    tools: builtinTools,
+    model: runtime.model,
+    reasoningEffort: runtime.reasoningEffort,
+  }
   const sessionId = args.sessionId ?? ulid()
 
   if (args.mode === "one_shot") {
@@ -108,6 +118,24 @@ export async function main(argv: string[]): Promise<number> {
     return 1
   }
   return 0
+}
+
+function resolveRuntime(
+  args: Pick<ParsedArgs, "model" | "provider">,
+  settings: UserSettings,
+): { model: string; provider: string; reasoningEffort?: HarnessDeps["reasoningEffort"] } {
+  const provider =
+    args.provider ?? process.env.LEHARNESS_PROVIDER ?? settings.runtime?.provider ?? "ollama"
+  const model =
+    args.model ??
+    process.env.LEHARNESS_MODEL ??
+    (settings.runtime?.provider === provider ? settings.runtime.model : undefined) ??
+    defaultModelFor(provider)
+  const reasoningEffort =
+    settings.runtime?.provider === provider && settings.runtime.model === model
+      ? settings.runtime.reasoningEffort
+      : undefined
+  return { model, provider, reasoningEffort }
 }
 
 async function runOnce(
