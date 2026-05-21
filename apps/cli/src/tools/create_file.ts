@@ -37,7 +37,7 @@ export const createFileTool: Tool<CreateFileArgs> = {
       }
     }
 
-    const summary = plural(lineCount(args.content), "line")
+    const summary = `Added ${plural(lineCount(args.content), "line")}`
     return {
       kind: "ok",
       output: `Created ${args.path}\n${summary}`,

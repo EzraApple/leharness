@@ -60,9 +60,6 @@ importers:
       ink:
         specifier: 6.8.0
         version: 6.8.0(@types/react@19.2.7)(react-devtools-core@6.1.2)(react@19.2.3)
-      ink-spinner:
-        specifier: 5.0.0
-        version: 5.0.0(ink@6.8.0(@types/react@19.2.7)(react-devtools-core@6.1.2)(react@19.2.3))(react@19.2.3)
       katex:
         specifier: ^0.16.45
         version: 0.16.45
@@ -625,10 +622,6 @@ packages:
     engines: {node: '>=8.0.0', npm: '>=5.0.0'}
     hasBin: true
 
-  cli-spinners@2.9.2:
-    resolution: {integrity: sha512-ywqV+5MmyL4E7ybXgKys4DugZbX0FC6LnwrhjuykIjnK9k8OQacQ7axGKnjDXWNhns0xot3bZI5h55H8yo9cJg==}
-    engines: {node: '>=6'}
-
   cli-table3@0.6.5:
     resolution: {integrity: sha512-+W/5efTR7y5HRD7gACw9yQjqMVvEMLBHmboM/kPWam+H+Hmyrgjh6YncVKK122YZkXrLudzTuAukUw9FnMf7IQ==}
     engines: {node: 10.* || >= 12.*}
@@ -758,13 +751,6 @@ packages:
   indent-string@5.0.0:
     resolution: {integrity: sha512-m6FAo/spmsW2Ab2fU35JTYwtOKa2yAwXSwgjSv1TJzh4Mh7mC3lzAOVLBprb72XsTrgkEIsl7YrFNAiDiRhIGg==}
     engines: {node: '>=12'}
-
-  ink-spinner@5.0.0:
-    resolution: {integrity: sha512-EYEasbEjkqLGyPOUc8hBJZNuC5GvXGMLu0w5gdTNskPc7Izc5vO3tdQEYnzvshucyGCBXc86ig0ujXPMWaQCdA==}
-    engines: {node: '>=14.16'}
-    peerDependencies:
-      ink: '>=4.0.0'
-      react: '>=18.0.0'
 
   ink@6.8.0:
     resolution: {integrity: sha512-sbl1RdLOgkO9isK42WCZlJCFN9hb++sX9dsklOvfd1YQ3bQ2AiFu12Q6tFlr0HvEUvzraJntQCCpfEoUe9DSzA==}
@@ -1414,8 +1400,6 @@ snapshots:
       parse5-htmlparser2-tree-adapter: 6.0.1
       yargs: 16.2.0
 
-  cli-spinners@2.9.2: {}
-
   cli-table3@0.6.5:
     dependencies:
       string-width: 4.2.3
@@ -1547,12 +1531,6 @@ snapshots:
       entities: 8.0.0
 
   indent-string@5.0.0: {}
-
-  ink-spinner@5.0.0(ink@6.8.0(@types/react@19.2.7)(react-devtools-core@6.1.2)(react@19.2.3))(react@19.2.3):
-    dependencies:
-      cli-spinners: 2.9.2
-      ink: 6.8.0(@types/react@19.2.7)(react-devtools-core@6.1.2)(react@19.2.3)
-      react: 19.2.3
 
   ink@6.8.0(@types/react@19.2.7)(react-devtools-core@6.1.2)(react@19.2.3):
     dependencies:

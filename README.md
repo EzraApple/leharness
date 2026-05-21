@@ -109,7 +109,9 @@ LEHARNESS_DEEPSEEK_BASE_URL=... # override the DeepSeek OpenAI-compatible URL
 The CLI also reads a repo-local `.env` file before provider setup.
 
 Sessions are saved under `.leharness/sessions` in the current working directory
-unless `LEHARNESS_HOME` is set.
+unless `LEHARNESS_HOME` is set. Workspace-owned skills can live under
+`.leharness/skills/<name>/SKILL.md`; inherited workspace skill locations
+`.agents/skills` and `.claude/skills` are also discovered.
 
 For local package development:
 

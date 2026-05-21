@@ -11,10 +11,14 @@ export function renderMarkdown(text: string, width: number): string {
   const parser = parserForWidth(width)
   try {
     const rendered = parser.parse(text)
-    return typeof rendered === "string" ? rendered.trimEnd() : text
+    return typeof rendered === "string" ? normalizeListMarkers(rendered).trimEnd() : text
   } catch {
     return text
   }
+}
+
+function normalizeListMarkers(text: string): string {
+  return text.replace(/^(\s*)\* /gm, "$1• ")
 }
 
 function parserForWidth(width: number): Marked {

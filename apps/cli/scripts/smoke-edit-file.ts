@@ -32,7 +32,7 @@ async function smokeSuccessfulCreate(): Promise<void> {
 
   assert.equal(result.kind, "ok")
   assert.equal(await fs.readFile("created/note.txt", "utf8"), "hello\nworld\n")
-  assert.equal(result.summary, "3 lines")
+  assert.equal(result.summary, "Added 3 lines")
 }
 
 async function smokeExistingCreateFailure(): Promise<void> {

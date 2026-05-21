@@ -4,8 +4,11 @@ type CellKind = "system" | "user" | "assistant" | "tool" | "error"
 export type ToolStatus = "pending" | "completed" | "failed"
 
 export interface Cell {
+  detail?: string
   id: string
+  expanded?: boolean
   kind: CellKind
+  outcome?: "cancelled" | "failed" | "ok"
   title?: string
   text: string
   status?: ToolStatus
@@ -26,6 +29,7 @@ export interface ReadBatch {
   cellIndex?: number
   completed: number
   failed: boolean
+  targets: string[]
   total: number
 }
 
