@@ -1,12 +1,14 @@
 import type { HarnessDeps } from "@leharness/harness"
-import { Box, Static, Text } from "ink"
-import Spinner from "ink-spinner"
-import { useMemo } from "react"
+import { Box, Text } from "ink"
+import { useEffect, useMemo, useState } from "react"
 import stringWidth from "string-width"
 import wrapAnsi from "wrap-ansi"
 import type { Cell, TranscriptState } from "../state/types.js"
 import { renderMarkdown } from "../utils/markdown.js"
 import { SessionHeader } from "./header.js"
+
+const ASSISTANT_MARKER = "• "
+const RAIL_INDENT = "  "
 
 interface TranscriptRow {
   backgroundColor?: string
@@ -21,7 +23,6 @@ interface TranscriptRow {
 export function Transcript({
   deps,
   priorEventCount,
-  resetKey,
   running,
   sessionId,
   transcript,
@@ -29,7 +30,6 @@ export function Transcript({
 }: {
   deps: HarnessDeps
   priorEventCount: number
-  resetKey: number
   running: boolean
   sessionId: string
   transcript: TranscriptState
@@ -44,18 +44,13 @@ export function Transcript({
     () => addThinkingPlaceholder(liveCells, transcript, running),
     [liveCells, running, transcript],
   )
-  const staticItems = useMemo<StaticTranscriptItem[]>(
-    () => committedCells.map((cell): StaticTranscriptItem => ({ cell, kind: "cell" })),
-    [committedCells],
-  )
-  const liveRows = useMemo(
+  const rows = useMemo(
     () =>
-      buildRows(visibleLiveCells, {
+      buildRows([...committedCells, ...visibleLiveCells], {
         running,
-        startIndex: committedCells.length,
         width: bodyWidth,
       }),
-    [bodyWidth, committedCells.length, running, visibleLiveCells],
+    [bodyWidth, committedCells, running, visibleLiveCells],
   )
 
   return (
@@ -66,45 +61,6 @@ export function Transcript({
         sessionId={sessionId}
         width={width - 2}
       />
-      <Static items={staticItems} key={resetKey}>
-        {(item, index) => {
-          return (
-            <TranscriptCell
-              cell={item.cell}
-              key={item.cell.id}
-              running={false}
-              transcriptIndex={index}
-              width={bodyWidth}
-            />
-          )
-        }}
-      </Static>
-      {liveRows.map((row) => (
-        <TranscriptRowText key={row.id} row={row} />
-      ))}
-    </Box>
-  )
-}
-
-type StaticTranscriptItem = {
-  cell: Cell
-  kind: "cell"
-}
-
-function TranscriptCell({
-  cell,
-  running,
-  transcriptIndex,
-  width,
-}: {
-  cell: Cell
-  running: boolean
-  transcriptIndex: number
-  width: number
-}) {
-  const rows = buildRows([cell], { running, startIndex: transcriptIndex, width })
-  return (
-    <Box flexDirection="column">
       {rows.map((row) => (
         <TranscriptRowText key={row.id} row={row} />
       ))}
@@ -113,14 +69,14 @@ function TranscriptCell({
 }
 
 function TranscriptRowText({ row }: { row: TranscriptRow }) {
+  const ellipsis = useAnimatedEllipsis(row.spinner === true)
+
   if (row.spinner === true) {
     return (
       <Text backgroundColor={row.backgroundColor} color={row.color}>
         {row.marker === undefined ? null : <Text color={row.markerColor}>{row.marker}</Text>}
         {row.text}
-        <Text color="cyan">
-          <Spinner type="dots" />
-        </Text>
+        <Text color="cyan">{ellipsis}</Text>
       </Text>
     )
   }
@@ -131,6 +87,19 @@ function TranscriptRowText({ row }: { row: TranscriptRow }) {
       {row.text}
     </Text>
   )
+}
+
+function useAnimatedEllipsis(active: boolean): string {
+  const [frame, setFrame] = useState(0)
+
+  useEffect(() => {
+    if (!active) return
+    const interval = setInterval(() => setFrame((current) => (current + 1) % 3), 350)
+    return () => clearInterval(interval)
+  }, [active])
+
+  if (!active) return ""
+  return ".".repeat(frame + 1).padEnd(3, " ")
 }
 
 function addThinkingPlaceholder(
@@ -174,12 +143,14 @@ function splitTranscriptCells(transcript: TranscriptState): {
 function buildRows(
   cells: Cell[],
   options: {
+    previousKind?: Cell["kind"]
     running: boolean
     startIndex?: number
     width: number
   },
 ): TranscriptRow[] {
   const rows: TranscriptRow[] = []
+  let previousKind = options.previousKind
   for (const [index, cell] of cells.entries()) {
     const transcriptIndex = (options.startIndex ?? 0) + index
     if (cell.kind === "user") {
@@ -198,6 +169,9 @@ function buildRows(
         pushDottedMarkdown(rows, cell, text, options.width)
       }
     } else if (cell.kind === "tool") {
+      if (previousKind !== undefined && previousKind !== "assistant" && previousKind !== "tool") {
+        pushBlank(rows, cell.id)
+      }
       pushTool(rows, cell, options.width)
     } else if (cell.kind === "error") {
       pushBlank(rows, cell.id)
@@ -210,10 +184,15 @@ function buildRows(
         "red",
       )
     } else {
-      pushDottedWrapped(rows, cell, cell.text.trim(), options.width, "gray", "gray")
+      if (cell.text.trim().length > 0) pushSystem(rows, cell, options.width)
     }
+    previousKind = cell.kind
   }
   return rows
+}
+
+export const transcriptTestInternals = {
+  buildRows,
 }
 
 function pushThinking(rows: TranscriptRow[], cell: Cell, width: number): void {
@@ -221,7 +200,7 @@ function pushThinking(rows: TranscriptRow[], cell: Cell, width: number): void {
 }
 
 function pushUserWrapped(rows: TranscriptRow[], cell: Cell, text: string, width: number): void {
-  const prefix = "┃ "
+  const prefix = RAIL_INDENT
   const bodyWidth = Math.max(8, width - visibleWidth(prefix))
   for (const [index, line] of wrapText(text, bodyWidth).entries()) {
     const rowText = `${prefix}${line}`
@@ -236,16 +215,25 @@ function pushTool(rows: TranscriptRow[], cell: Cell, width: number): void {
     return
   }
 
-  const failed = cell.status === "failed"
-  pushBlank(rows, cell.id)
+  const failed = cell.status === "failed" || cell.outcome === "failed"
+  const detail = expandedDetail(cell)
+  const text = compactToolLine(title, cell)
   pushDottedWrapped(
     rows,
     cell,
-    [title, cell.text.trim()].filter((part) => part.length > 0).join("\n"),
+    [text, detail]
+      .filter((part): part is string => part !== undefined && part.length > 0)
+      .join("\n"),
     width,
     failed ? "red" : "green",
     failed ? "red" : "gray",
   )
+}
+
+function pushSystem(rows: TranscriptRow[], cell: Cell, width: number): void {
+  pushBlank(rows, cell.id)
+  const color = cell.outcome === "failed" ? "red" : cell.outcome === "cancelled" ? "yellow" : "gray"
+  pushDottedWrapped(rows, cell, cell.text.trim(), width, color, color)
 }
 
 function pushPendingTool(rows: TranscriptRow[], cell: Cell, text: string, width: number): void {
@@ -255,7 +243,7 @@ function pushPendingTool(rows: TranscriptRow[], cell: Cell, text: string, width:
 function renderToolDisplayTitle(cell: Cell): string {
   const display = cell.display
   if (display === undefined) {
-    const title = cell.title ?? "tool"
+    const title = formatToolLabel(cell.title ?? "tool")
     if (cell.status === "pending") return title
     return `${title} ${cell.status === "failed" ? "failed" : "ok"}`
   }
@@ -266,7 +254,54 @@ function renderToolDisplayTitle(cell: Cell): string {
       : cell.status === "failed"
         ? display.failed
         : display.completed
-  return [verb, display.target].filter((part) => part !== undefined && part.length > 0).join(" ")
+  return [formatToolLabel(verb), display.target]
+    .filter((part) => part !== undefined && part.length > 0)
+    .join(" ")
+}
+
+function formatToolLabel(value: string): string {
+  return value.replaceAll("_", " ").toLowerCase()
+}
+
+function compactToolLine(title: string, cell: Cell): string {
+  const text = cell.text.trim()
+  if (text.length === 0) return title
+  if (!isCompactFileTool(cell) || text.includes("\n")) return [title, text].join("\n")
+  return `${title} · ${lowerFirst(text)}`
+}
+
+function isCompactFileTool(cell: Cell): boolean {
+  return cell.status === "completed" && (cell.title === "edit_file" || cell.title === "create_file")
+}
+
+function lowerFirst(value: string): string {
+  const first = value[0]
+  if (first === undefined) return value
+  return `${first.toLowerCase()}${value.slice(1)}`
+}
+
+function indentDetail(text: string): string {
+  return text
+    .split("\n")
+    .map((line) => `  ${line}`)
+    .join("\n")
+}
+
+function expandedDetail(cell: Cell): string | undefined {
+  if (cell.expanded !== true || cell.detail === undefined) return undefined
+  const summaryLines = new Set(
+    cell.text
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0),
+  )
+  const detail = cell.detail
+    .trim()
+    .split("\n")
+    .filter((line) => !summaryLines.has(line.trim()))
+    .join("\n")
+    .trim()
+  return detail.length > 0 ? indentDetail(detail) : undefined
 }
 
 function pushDottedWrapped(
@@ -280,7 +315,7 @@ function pushDottedWrapped(
   spinner?: boolean,
   partPrefix = "dot",
 ): void {
-  const markerWidth = visibleWidth("● ")
+  const markerWidth = visibleWidth(ASSISTANT_MARKER)
   const bodyWidth = Math.max(8, width - markerWidth)
   for (const [index, line] of wrapText(text, bodyWidth).entries()) {
     pushLine(
@@ -291,14 +326,14 @@ function pushDottedWrapped(
       color,
       backgroundColor,
       spinner && index === 0,
-      index === 0 ? "● " : "  ",
+      index === 0 ? ASSISTANT_MARKER : RAIL_INDENT,
       markerColor,
     )
   }
 }
 
 function pushDottedMarkdown(rows: TranscriptRow[], cell: Cell, text: string, width: number): void {
-  const markerWidth = visibleWidth("● ")
+  const markerWidth = visibleWidth(ASSISTANT_MARKER)
   const bodyWidth = Math.max(8, width - markerWidth)
   const rendered = renderMarkdown(text, bodyWidth)
   for (const [index, line] of wrapText(rendered, bodyWidth).entries()) {
@@ -310,7 +345,7 @@ function pushDottedMarkdown(rows: TranscriptRow[], cell: Cell, text: string, wid
       undefined,
       undefined,
       false,
-      index === 0 ? "● " : "  ",
+      index === 0 ? ASSISTANT_MARKER : RAIL_INDENT,
     )
   }
 }

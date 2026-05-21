@@ -14,10 +14,16 @@ const originalCwd = process.cwd()
 const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "leharness-smoke-skills-"))
 const workspace = path.join(tmp, "workspace")
 const home = path.join(tmp, "home")
-const skillDir = path.join(workspace, ".agents", "skills", "example")
+const skillDir = path.join(workspace, ".leharness", "skills", "example")
 const skillPath = path.join(skillDir, "SKILL.md")
+const agentsSkillDir = path.join(workspace, ".agents", "skills", "example")
+const agentsSkillPath = path.join(agentsSkillDir, "SKILL.md")
+const claudeSkillDir = path.join(workspace, ".claude", "skills", "example")
+const claudeSkillPath = path.join(claudeSkillDir, "SKILL.md")
 
 await fs.mkdir(skillDir, { recursive: true })
+await fs.mkdir(agentsSkillDir, { recursive: true })
+await fs.mkdir(claudeSkillDir, { recursive: true })
 await fs.mkdir(home, { recursive: true })
 await fs.writeFile(
   skillPath,
@@ -29,6 +35,30 @@ description: Use when testing initial skill catalog behavior.
 # Example Skill
 
 Initial skill body.
+`,
+)
+await fs.writeFile(
+  agentsSkillPath,
+  `---
+name: example
+description: Shadowed agents skill.
+---
+
+# Agents Skill
+
+Agents skill body.
+`,
+)
+await fs.writeFile(
+  claudeSkillPath,
+  `---
+name: example
+description: Shadowed claude skill.
+---
+
+# Claude Skill
+
+Claude skill body.
 `,
 )
 
@@ -110,9 +140,20 @@ try {
   )
   assert(
     firstSkillEvents[0].name === "example" &&
-      firstSkillEvents[0].path === ".agents/skills/example/SKILL.md" &&
+      firstSkillEvents[0].path === ".leharness/skills/example/SKILL.md" &&
+      firstSkillEvents[0].source === "workspace_leharness" &&
       typeof firstSkillEvents[0].contentHash === "string",
     `unexpected first skill.loaded payload: ${JSON.stringify(firstSkillEvents[0])}`,
+  )
+  assert(
+    requests[1]?.messages.some(
+      (message) =>
+        message.role === "tool" &&
+        message.content.includes("Shadowed skills:") &&
+        message.content.includes(".agents/skills/example/SKILL.md") &&
+        message.content.includes(".claude/skills/example/SKILL.md"),
+    ) === true,
+    "first load_skill result should report inherited shadowed skills",
   )
   const firstHash = firstSkillEvents[0].contentHash
 

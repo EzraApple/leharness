@@ -1,8 +1,8 @@
 export function finishReason(reason: string): string {
-  if (reason === "no_tool_calls") return "Done"
-  if (reason === "cancelled") return "Cancelled"
-  if (reason === "max_steps") return "Stopped: max steps reached"
-  if (reason === "model_failed") return "Stopped: model failed"
+  if (reason === "no_tool_calls") return "done"
+  if (reason === "cancelled") return "cancelled"
+  if (reason === "max_steps") return "stopped: max steps reached"
+  if (reason === "model_failed") return "stopped: model failed"
   return reason
 }
 

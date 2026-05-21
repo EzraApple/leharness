@@ -6,7 +6,7 @@ import { z } from "zod"
 import type { Event } from "./events.js"
 import type { Tool, ToolContext, ToolExecuteResult } from "./tools.js"
 
-export type SkillSource = "workspace_agents" | "workspace_claude"
+export type SkillSource = "workspace_leharness" | "workspace_agents" | "workspace_claude"
 
 export interface Skill {
   name: string
@@ -39,6 +39,7 @@ const DEFAULT_MAX_SKILL_BYTES = 32 * 1024
 const DESCRIPTION_CAPS = [240, 120, 60]
 
 const skillDirs: Array<{ dir: string; source: SkillSource }> = [
+  { dir: path.join(".leharness", "skills"), source: "workspace_leharness" },
   { dir: path.join(".agents", "skills"), source: "workspace_agents" },
   { dir: path.join(".claude", "skills"), source: "workspace_claude" },
 ]
@@ -112,7 +113,6 @@ export function createLoadSkillTool(
       completed: "loaded",
       failed: "could not load",
       target: (args) => `/${args.name}`,
-      summarize: (output) => firstLine(output),
     },
     async execute(args, ctx: ToolContext): Promise<ToolExecuteResult> {
       const root = path.resolve(options.root ?? process.cwd())
@@ -145,10 +145,6 @@ export function createLoadSkillTool(
       }
     },
   }
-}
-
-function firstLine(value: string): string {
-  return value.split("\n")[0] ?? ""
 }
 
 export function skillOptionsEnabled(options: SkillOptions | false | undefined): boolean {
@@ -420,6 +416,7 @@ function compareSkillPrecedence(a: Skill, b: Skill): number {
 }
 
 function sourceScore(source: SkillSource): number {
+  if (source === "workspace_leharness") return 110
   if (source === "workspace_agents") return 100
   return 90
 }

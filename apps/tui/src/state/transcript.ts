@@ -23,6 +23,22 @@ export function appendCell(state: TranscriptState, cell: CellInput): TranscriptS
   return next
 }
 
+export function setLatestToolDetailExpanded(
+  state: TranscriptState,
+  expanded: boolean,
+  target?: string,
+): { changed: boolean; state: TranscriptState } {
+  const next = cloneTranscript(state)
+  const index = expanded
+    ? findLatestExpandableCell(next, target)
+    : findLatestExpandedCell(next, target)
+  if (index === undefined) return { changed: false, state }
+  const cell = next.cells[index]
+  if (cell === undefined) return { changed: false, state }
+  next.cells[index] = { ...cell, expanded }
+  return { changed: true, state: next }
+}
+
 function pushCell(state: TranscriptState, cell: CellInput): void {
   const id = `cell-${state.nextCellId}`
   state.nextCellId += 1
@@ -62,9 +78,52 @@ function cloneTranscript(state: TranscriptState): TranscriptState {
     nextCellId: state.nextCellId,
     nextReadBatchId: state.nextReadBatchId,
     readBatchByCallId: new Map(state.readBatchByCallId),
-    readBatches: new Map([...state.readBatches].map(([key, batch]) => [key, { ...batch }])),
+    readBatches: new Map(
+      [...state.readBatches].map(([key, batch]) => [
+        key,
+        { ...batch, targets: [...batch.targets] },
+      ]),
+    ),
     toolCellById: new Map(state.toolCellById),
   }
+}
+
+function findLatestExpandableCell(
+  state: TranscriptState,
+  target: string | undefined,
+): number | undefined {
+  for (let index = state.cells.length - 1; index >= 0; index--) {
+    const cell = state.cells[index]
+    if (
+      cell?.detail !== undefined &&
+      cell.detail.trim().length > 0 &&
+      matchesDetailTarget(cell, target)
+    ) {
+      return index
+    }
+  }
+  return undefined
+}
+
+function findLatestExpandedCell(
+  state: TranscriptState,
+  target: string | undefined,
+): number | undefined {
+  for (let index = state.cells.length - 1; index >= 0; index--) {
+    const cell = state.cells[index]
+    if (cell?.expanded === true && matchesDetailTarget(cell, target)) return index
+  }
+  return undefined
+}
+
+function matchesDetailTarget(cell: Cell, target: string | undefined): boolean {
+  if (target === undefined || target.trim().length === 0) return true
+  const normalized = target.toLowerCase().replace(/^\/+/, "")
+  if (["read", "reads", "file", "files"].includes(normalized)) {
+    return cell.title === "read_file_batch"
+  }
+  if (["sh", "shell", "command"].includes(normalized)) return cell.title === "bash"
+  return (cell.title ?? "").toLowerCase().includes(normalized)
 }
 
 export function reduceText(state: TranscriptState, delta: string): TranscriptState {
@@ -100,8 +159,11 @@ export function reduceEvent(state: TranscriptState, event: Event): TranscriptSta
       const existingIndex = next.toolCellById.get(call.id)
       if (existingIndex !== undefined && next.cells[existingIndex] !== undefined) {
         updateToolInline(next, existingIndex, {
+          detail: undefined,
           display: readDisplay(event.display),
+          expanded: false,
           kind: "tool",
+          outcome: undefined,
           status: "pending",
           text: "",
           title: call.name,
@@ -110,6 +172,7 @@ export function reduceEvent(state: TranscriptState, event: Event): TranscriptSta
       }
       const index = appendCellInline(next, {
         display: readDisplay(event.display),
+        expanded: false,
         kind: "tool",
         status: "pending",
         text: "",
@@ -127,6 +190,7 @@ export function reduceEvent(state: TranscriptState, event: Event): TranscriptSta
     case "model.failed":
       pushCell(next, {
         kind: "error",
+        outcome: "failed",
         text: String(event.error ?? "model failed"),
         title: "model",
       })
@@ -134,9 +198,12 @@ export function reduceEvent(state: TranscriptState, event: Event): TranscriptSta
     case "agent.finished":
       next.activeAssistantIndex = undefined
       if (event.reason !== "no_tool_calls") {
+        const reason = String(event.reason ?? "unknown")
         pushCell(next, {
           kind: "system",
-          text: finishReason(String(event.reason ?? "unknown")),
+          outcome:
+            reason === "cancelled" ? "cancelled" : reason === "model_failed" ? "failed" : undefined,
+          text: finishReason(reason),
           title: "status",
         })
       }
@@ -160,13 +227,17 @@ function completeTool(state: TranscriptState, event: Event, status: ToolStatus):
   const output = status === "completed" ? String(event.result ?? "") : String(event.error ?? "")
   const display = readDisplay(event.display)
   if (call !== undefined && completeReadBatchTool(state, call, display, output, status)) return
-  const text = display?.summary ?? summarize(output, 8, 900)
+  const text = toolCellText(call, display, output, status)
+  const detail = toolCellDetail(call, output, status)
+  const outcome = toolOutcome(call, text, status)
   if (call?.id !== undefined) {
     const index = state.toolCellById.get(call.id)
     const cell = index === undefined ? undefined : state.cells[index]
     if (index !== undefined && cell !== undefined) {
       updateToolInline(state, index, {
+        detail,
         display: display ?? cell.display,
+        outcome,
         status,
         text,
       })
@@ -174,8 +245,10 @@ function completeTool(state: TranscriptState, event: Event, status: ToolStatus):
     }
   }
   pushCell(state, {
+    detail,
     display,
     kind: status === "failed" ? "error" : "tool",
+    outcome,
     status,
     text,
     title: call?.name ?? "tool",
@@ -202,6 +275,7 @@ function registerReadBatch(state: TranscriptState, calls: ToolCall[]): void {
   state.readBatches.set(key, {
     completed: 0,
     failed: false,
+    targets: calls.map(readToolCallTarget),
     total: calls.length,
   })
   for (const call of calls) state.readBatchByCallId.set(call.id, key)
@@ -212,7 +286,9 @@ function startReadBatchTool(state: TranscriptState, call: ToolCall): boolean {
   if (batch === undefined) return false
   if (batch.cellIndex !== undefined && state.cells[batch.cellIndex] !== undefined) return true
   batch.cellIndex = appendCellInline(state, {
+    detail: readBatchText(batch),
     display: readBatchDisplay(batch),
+    expanded: false,
     kind: "tool",
     status: "pending",
     text: "",
@@ -236,11 +312,19 @@ function completeReadBatchTool(
   if (status === "completed") batch.completed += 1
   if (status === "failed") batch.failed = true
   const done = batch.failed || batch.completed >= batch.total
-  const text = status === "failed" ? (display?.summary ?? summarize(output, 4, 400)) : ""
+  const detail = readBatchText(batch)
+  const text =
+    status === "failed"
+      ? [compactToolSummary(display?.summary) ?? summarize(output, 4, 400)]
+          .filter((part) => part.length > 0)
+          .join("\n")
+      : ""
   const index = batch.cellIndex
   if (index !== undefined) {
     updateToolInline(state, index, {
+      detail,
       display: readBatchDisplay(batch),
+      outcome: batch.failed ? "failed" : undefined,
       status: batch.failed ? "failed" : done ? "completed" : "pending",
       text,
     })
@@ -263,8 +347,105 @@ function readBatchDisplay(batch: ReadBatch): ToolDisplaySnapshot {
 }
 
 function readBatchTarget(batch: ReadBatch): string {
-  if (batch.completed >= batch.total) return plural(batch.total, "file")
-  return "files"
+  return plural(batch.total, "file")
+}
+
+function readBatchText(batch: ReadBatch): string {
+  const visibleTargets = batch.targets.filter((target) => target.length > 0)
+  if (visibleTargets.length === 0) return ""
+  const maxTargets = 12
+  const shown = visibleTargets.slice(0, maxTargets)
+  const hidden = visibleTargets.length - shown.length
+  return [...shown, hidden > 0 ? `... ${plural(hidden, "more file")}` : undefined]
+    .filter((line): line is string => line !== undefined)
+    .join("\n")
+}
+
+function readToolCallTarget(call: ToolCall): string {
+  if (typeof call.args !== "object" || call.args === null) return ""
+  const path = (call.args as Record<string, unknown>).path
+  return typeof path === "string" ? path : ""
+}
+
+function compactToolSummary(summary: string | undefined): string | undefined {
+  if (summary === undefined) return undefined
+  const byteStripped = summary
+    .split(/\s+·\s+/g)
+    .filter((part) => !/\bbytes?\b/i.test(part))
+    .join(" · ")
+    .trim()
+  const lineChange = /(?:^|\s)([+-]\d+)\s+([+-]\d+)(?:\s+lines?)?/i.exec(byteStripped)
+  if (lineChange !== null) {
+    const added = Number.parseInt((lineChange[1] ?? "+0").replace("+", ""), 10)
+    const removed = Math.abs(Number.parseInt(lineChange[2] ?? "-0", 10))
+    if (added > 0 && removed === 0) return `Added ${plural(added, "line")}`
+    if (removed > 0 && added === 0) return `Removed ${plural(removed, "line")}`
+    return `Changed +${added} -${removed} lines`
+  }
+  return byteStripped.length > 0 ? byteStripped : undefined
+}
+
+function toolCellText(
+  call: ToolCall | undefined,
+  display: ToolDisplaySnapshot | undefined,
+  output: string,
+  status: ToolStatus,
+): string {
+  const summary = compactToolSummary(display?.summary) ?? summarize(output, 8, 900)
+  if (call?.name !== "bash" || status === "failed") return summary
+  const failureLine = bashExitCode(summary) > 0 ? firstUsefulOutputLine(output) : undefined
+  return [summary, failureLine].filter((part): part is string => part !== undefined).join("\n")
+}
+
+function toolCellDetail(
+  call: ToolCall | undefined,
+  output: string,
+  status: ToolStatus,
+): string | undefined {
+  if (call?.name === "bash") return commandBody(output)
+  if (status !== "failed") return undefined
+  const trimmed = output.trim()
+  return trimmed.length > 0 ? trimmed : undefined
+}
+
+function toolOutcome(
+  call: ToolCall | undefined,
+  text: string,
+  status: ToolStatus,
+): CellInput["outcome"] {
+  if (status === "failed") return "failed"
+  if (call?.name === "bash" && bashExitCode(text) > 0) return "failed"
+  return undefined
+}
+
+function bashExitCode(summary: string): number {
+  const value = /\bexit\s+(\d+)\b/i.exec(summary)?.[1]
+  return value === undefined ? 0 : Number.parseInt(value, 10)
+}
+
+function commandBody(output: string): string | undefined {
+  const body = output
+    .split("\n")
+    .filter(
+      (line) =>
+        !line.startsWith("$ ") && !line.startsWith("[exit:") && !line.startsWith("[signal:"),
+    )
+    .join("\n")
+    .trim()
+  return body.length > 0 ? body : undefined
+}
+
+function firstUsefulOutputLine(output: string): string | undefined {
+  const lines =
+    commandBody(output)
+      ?.split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0) ?? []
+  return (
+    lines.find((line) =>
+      /\b(error|failed|failure|exception|not found|no such|cannot|denied)\b|^ERR!/i.test(line),
+    ) ?? lines[0]
+  )
 }
 
 function plural(count: number, noun: string): string {

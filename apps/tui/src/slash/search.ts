@@ -64,8 +64,9 @@ function dedupeSlashItems(items: SlashItem[]): SlashItem[] {
 }
 
 export function replaceSlashToken(input: string, token: SlashToken, item: SlashItem): string {
-  const replacement = `/${item.name}`
-  return `${input.slice(0, token.start)}${replacement}${input.slice(token.end)}`.trimEnd()
+  const replacement = item.kind === "skill" ? `/${item.name} ` : `/${item.name}`
+  const next = `${input.slice(0, token.start)}${replacement}${input.slice(token.end)}`
+  return item.kind === "skill" ? next : next.trimEnd()
 }
 
 export function expandSkillTokens(input: string, skills: Skill[]): string {

@@ -14,8 +14,8 @@ import {
   type Skill,
   updateUserSettings,
 } from "@leharness/harness"
-import { Box, useApp, useInput, useStdout } from "ink"
-import { useEffect, useMemo, useRef, useState } from "react"
+import { Box, Text, useApp, useInput, useStdout } from "ink"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Footer, Prompt } from "./components/prompt.js"
 import { QueuedMessages } from "./components/queued-messages.js"
 import { type MenuItem, SlashMenu } from "./components/slash-menu.js"
@@ -27,6 +27,7 @@ import {
   replaceSlashToken,
   searchSlashItems,
 } from "./slash/search.js"
+import type { SlashItem, SlashToken } from "./slash/types.js"
 import { appendCell, initialTranscript, reduceEvent, reduceText } from "./state/transcript.js"
 import type { QueuedMessage, TranscriptState } from "./state/types.js"
 
@@ -71,6 +72,7 @@ export function TuiApp({
   const [slashSelectedIndex, setSlashSelectedIndex] = useState(0)
   const [slashDismissedInput, setSlashDismissedInput] = useState<string | undefined>()
   const [picker, setPicker] = useState<PickerState | undefined>()
+  const [helpVisible, setHelpVisible] = useState(false)
   const [running, setRunning] = useState(false)
   const [status, setStatus] = useState("idle")
   const [selectedProvider, setSelectedProvider] = useState(deps.provider)
@@ -79,7 +81,6 @@ export function TuiApp({
     () => deps.reasoningEffort ?? defaultReasoningEffortForModel(deps.model, deps.provider.name),
   )
   const [queuedMessages, setQueuedMessages] = useState<QueuedMessage[]>([])
-  const [transcriptResetKey, setTranscriptResetKey] = useState(0)
   const [transcript, setTranscript] = useState<TranscriptState>(() => {
     let state = initialTranscript()
     for (const event of priorEvents) state = reduceEvent(state, event)
@@ -152,10 +153,10 @@ export function TuiApp({
     return () => abortRef.current?.abort()
   }, [])
 
-  useEffect(() => {
+  const refreshSkills = useCallback(() => {
     if (deps.skills === false) {
       setSkills([])
-      return
+      return () => {}
     }
 
     let cancelled = false
@@ -172,10 +173,19 @@ export function TuiApp({
     }
   }, [deps.skills])
 
+  useEffect(() => refreshSkills(), [refreshSkills])
+
   const slashToken = useMemo(
     () => (pickerActive ? undefined : findSlashToken(input)),
     [input, pickerActive],
   )
+  const slashOpen = slashToken !== undefined
+
+  useEffect(() => {
+    if (!slashOpen) return
+    return refreshSkills()
+  }, [refreshSkills, slashOpen])
+
   const slashItems = useMemo(() => {
     if (slashToken === undefined || slashDismissedInput === input) return []
     return searchSlashItems(activeSlashCommands, skills, slashToken.query)
@@ -201,17 +211,12 @@ export function TuiApp({
     if (slashToken === undefined || slashItems.length === 0) return false
     const item = slashItems[slashSelectedIndex] ?? slashItems[0]
     if (item === undefined) return false
-    setInput(replaceSlashToken(input, slashToken, item))
+    const nextInput = replaceSlashToken(input, slashToken, item)
+    setInput(nextInput)
     setInputVersion((version) => version + 1)
     setSlashDismissedInput(undefined)
     setHistoryIndex(undefined)
     return true
-  }
-
-  const slashSelectionIsExact = () => {
-    if (slashToken === undefined || slashItems.length === 0) return false
-    const item = slashItems[slashSelectedIndex] ?? slashItems[0]
-    return item !== undefined && slashToken.token === `/${item.name}`
   }
 
   function replaceQueuedMessages(messages: QueuedMessage[]): void {
@@ -263,7 +268,8 @@ export function TuiApp({
     setSlashDismissedInput(undefined)
     setSlashSelectedIndex(0)
     setHistoryIndex(undefined)
-    setStatus(kind === "model" ? "select model" : "select effort")
+    setHelpVisible(false)
+    setStatus(`select ${kind}`)
   }
 
   function rememberSubmittedMessage(text: string): void {
@@ -357,6 +363,7 @@ export function TuiApp({
       runningRef.current = false
       setRunning(false)
       setStatus("idle")
+      refreshSkills()
       if (shouldDrain) void startNextQueuedMessage()
     }
   }
@@ -407,6 +414,10 @@ export function TuiApp({
           )
           return
         }
+        return
+      }
+      if (helpVisible && (key.escape || rawInput === "\u001b")) {
+        setHelpVisible(false)
         return
       }
       if ((key.return || rawInput === "\r" || rawInput === "\n") && input.trim().length === 0) {
@@ -555,7 +566,27 @@ export function TuiApp({
       selectPickerItem()
       return
     }
-    if (slashActive && !slashSelectionIsExact() && acceptSlashSelection()) return
+    const submittedSlash = slashSelectionFor(value)
+    if (submittedSlash !== undefined) {
+      const { exact, item, token } = submittedSlash
+      if (item.kind === "skill" && !exact) {
+        const selected = replaceSlashToken(value, token, item)
+        setInput(selected)
+        setInputVersion((version) => version + 1)
+        setSlashDismissedInput(undefined)
+        setHistoryIndex(undefined)
+        return
+      }
+      if (item.kind === "command" && !exact) {
+        const selected = replaceSlashToken(value, token, item)
+        setSlashDismissedInput(undefined)
+        setHistoryIndex(undefined)
+        setInput(selected)
+        setInputVersion((version) => version + 1)
+        await submit(selected)
+        return
+      }
+    }
 
     const text = value.trim()
     if (text.length === 0) {
@@ -570,7 +601,7 @@ export function TuiApp({
     }
     if (text === "/clear") {
       setTranscript(initialTranscript())
-      setTranscriptResetKey((key) => key + 1)
+      setHelpVisible(false)
       clearComposer()
       return
     }
@@ -592,20 +623,7 @@ export function TuiApp({
       return
     }
     if (text === "/help") {
-      setTranscript((prev) =>
-        appendCell(prev, {
-          kind: "system",
-          title: "help",
-          text: [
-            "Enter sends when idle and queues while running.",
-            "With queued messages and an empty input, Enter interrupts the current run and sends the queue.",
-            "Esc aborts the current run. Ctrl-C exits.",
-            "Use your terminal scrollback to review previous transcript output.",
-            "/model opens a model picker. /effort opens reasoning effort for supported models.",
-            "/session prints the current session id. /clear starts a fresh transcript. /exit quits.",
-          ].join("\n"),
-        }),
-      )
+      setHelpVisible(true)
       clearComposer()
       return
     }
@@ -624,12 +642,29 @@ export function TuiApp({
     void startInvocation(text)
   }
 
+  function slashSelectionFor(value: string):
+    | {
+        exact: boolean
+        item: SlashItem
+        token: SlashToken
+      }
+    | undefined {
+    const token = pickerActive ? undefined : findSlashToken(value)
+    if (token === undefined || slashDismissedInput === value) return undefined
+    const items = searchSlashItems(activeSlashCommands, skills, token.query)
+    if (items.length === 0) return undefined
+    const item = items[Math.min(slashSelectedIndex, items.length - 1)] ?? items[0]
+    if (item === undefined) return undefined
+    return { exact: token.token === `/${item.name}`, item, token }
+  }
+
   const changeInput = (value: string) => {
     if (clearInputRef.current) {
       clearInputRef.current = false
       setInput("")
       return
     }
+    if (value.length > 0) setHelpVisible(false)
     setInput(value)
     if (picker !== undefined) {
       setPicker((current) => (current === undefined ? undefined : { ...current, selectedIndex: 0 }))
@@ -643,7 +678,6 @@ export function TuiApp({
       <Transcript
         deps={activeDeps}
         priorEventCount={priorEvents.length}
-        resetKey={transcriptResetKey}
         running={running}
         sessionId={sessionId}
         transcript={transcript}
@@ -659,7 +693,8 @@ export function TuiApp({
         slashNames={slashNames}
         submit={submit}
       />
-      {picker === undefined ? (
+      {helpVisible ? <HelpPanel width={columns} /> : null}
+      {helpVisible ? null : picker === undefined ? (
         <SlashMenu items={slashItems} selectedIndex={slashSelectedIndex} width={columns} />
       ) : (
         <SlashMenu
@@ -669,9 +704,48 @@ export function TuiApp({
           width={columns}
         />
       )}
-      {slashActive || pickerActive ? null : (
+      {slashActive || pickerActive || helpVisible ? null : (
         <Footer queuedCount={queuedMessages.length} running={running} status={status} />
       )}
+    </Box>
+  )
+}
+
+function HelpPanel({ width }: { width: number }) {
+  const panelWidth = Math.max(44, width - 2)
+  return (
+    <Box
+      borderColor="gray"
+      borderStyle="single"
+      flexDirection="column"
+      paddingX={1}
+      width={panelWidth}
+    >
+      <Box justifyContent="space-between">
+        <Text bold>help</Text>
+        <Text color="gray">esc close</Text>
+      </Box>
+      <Text color="gray">enter sends when idle; while running, enter queues next message</Text>
+      <Text color="gray">empty enter sends queued message and interrupts the current run</Text>
+      <Text color="gray">slash search includes commands and discovered skills as you type</Text>
+      <Text> </Text>
+      <HelpRow command="/model" description="switch model" />
+      <HelpRow command="/effort" description="switch reasoning effort when supported" />
+      <HelpRow command="/session" description="print current session id" />
+      <HelpRow command="/clear" description="clear visible transcript" />
+      <HelpRow command="/exit" description="quit the TUI" />
+      <HelpRow command="/quit" description="quit alias" />
+    </Box>
+  )
+}
+
+function HelpRow({ command, description }: { command: string; description: string }) {
+  return (
+    <Box>
+      <Box width={12}>
+        <Text color="cyan">{command}</Text>
+      </Box>
+      <Text color="gray">{description}</Text>
     </Box>
   )
 }
@@ -799,7 +873,10 @@ function withCurrentDescription(
 
 function scorePickerItem(item: PickerItem, query: string): number {
   const normalizedQuery = normalize(query)
-  if (normalizedQuery.length === 0) return item.kind === "model" ? 100 : 120
+  if (normalizedQuery.length === 0) {
+    if (item.kind === "effort") return 120
+    return item.kind === "model" ? 100 : 90
+  }
 
   const haystack =
     item.kind === "model"

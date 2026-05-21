@@ -61,6 +61,8 @@ function StyledTextInput({
         key.upArrow ||
         key.downArrow ||
         (key.ctrl && rawInput === "c") ||
+        key.escape ||
+        rawInput === "\u001b" ||
         key.tab ||
         (key.shift && key.tab)
       ) {
