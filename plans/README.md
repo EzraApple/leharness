@@ -25,3 +25,8 @@ Index:
   `leharness` with the `lh` CLI command, first-run setup, and update story.
 - `003-first-class-skills.md` — plan for workspace skill discovery, compact
   skill catalogs, `load_skill`, hot reload, and smoke coverage.
+- `004-background-tasks.md` — plan for background-capable tool execution
+  via a per-session `MessageQueue`, kind-tagged `Task` records, a
+  `ShellExecutor` first impl, `inline_ms` per-call background opt-in,
+  and `wait_task` / `read_task` / `cancel_task` built-ins. Alternatives
+  table at the end of the plan.
