@@ -1,4 +1,5 @@
 import assert from "node:assert/strict"
+import { transcriptTestInternals } from "../dist/components/transcript.js"
 import {
   appendCell,
   initialTranscript,
@@ -6,7 +7,6 @@ import {
   reduceText,
   setLatestToolDetailExpanded,
 } from "../dist/state/transcript.js"
-import { transcriptTestInternals } from "../dist/components/transcript.js"
 
 let state = initialTranscript()
 state = reduceText(state, "final")

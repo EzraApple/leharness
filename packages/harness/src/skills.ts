@@ -147,10 +147,6 @@ export function createLoadSkillTool(
   }
 }
 
-function firstLine(value: string): string {
-  return value.split("\n")[0] ?? ""
-}
-
 export function skillOptionsEnabled(options: SkillOptions | false | undefined): boolean {
   return options !== false && options?.enabled !== false
 }
