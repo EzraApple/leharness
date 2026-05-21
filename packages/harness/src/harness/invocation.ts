@@ -13,6 +13,12 @@ import {
   withSkillCatalog,
 } from "../skills.js"
 import {
+  builtInTaskTools,
+  getOrCreateTaskServices,
+  type Message,
+  type SessionTaskServices,
+} from "../tasks.js"
+import {
   executeToolCall,
   pendingDisplayForToolCall,
   type Tool,
@@ -35,6 +41,7 @@ export interface HarnessDeps {
   compaction?: CompactionOptions
   reasoningEffort?: ReasoningEffort
   skills?: SkillOptions | false
+  tasks?: boolean
 }
 
 export interface RunOptions {
@@ -68,6 +75,8 @@ export async function runInvocation(
   const { provider, maxSteps = DEFAULT_MAX_STEPS } = deps
   const signal = options.signal
   const invocation = await loadInvocationState(sessionId, options)
+  const tasksEnabled = deps.tasks !== false
+  const taskServices = tasksEnabled ? getOrCreateTaskServices(sessionId) : undefined
 
   await invocation.recordEvent("invocation.received", {
     text: userText,
@@ -76,8 +85,17 @@ export async function runInvocation(
     reasoningEffort: deps.reasoningEffort,
   })
 
+  if (taskServices !== undefined) {
+    await drainTaskQueue(invocation, taskServices)
+    await reapOrphanTasks(invocation, taskServices)
+  }
+
   for (let stepNumber = 1; stepNumber <= maxSteps; stepNumber++) {
     if (isCancelled(signal)) return endInvocation(invocation, "cancelled")
+
+    if (stepNumber > 1 && taskServices !== undefined) {
+      await drainTaskQueue(invocation, taskServices)
+    }
 
     await invocation.recordEvent("step.started", { stepNumber })
 
@@ -112,6 +130,7 @@ export async function runInvocation(
       sessionId,
       recordEvent: invocation.recordEvent,
       signal,
+      taskServices,
     })
     if (toolRun.kind === "cancelled") return endInvocation(invocation, "cancelled")
   }
@@ -127,8 +146,9 @@ async function preparePrompt(
 ): Promise<PreparedPrompt> {
   const baseSystem = deps.systemPrompt
   const skillConfig = deps.skills === false ? undefined : deps.skills
+  const tasksEnabled = deps.tasks !== false
   let system = baseSystem
-  let tools = deps.tools
+  let tools = tasksEnabled ? withBuiltInTaskTools(deps.tools) : deps.tools
 
   if (skillOptionsEnabled(deps.skills)) {
     const discoveredSkills = await discoverSkills(skillConfig?.root)
@@ -140,13 +160,14 @@ async function preparePrompt(
         recentSkillNames: recentLoadedSkillNames(invocation.events),
       })
       system = withSkillCatalog(baseSystem, catalog)
-      tools = [
+      const skillTools = [
         createLoadSkillTool({
           root: skillConfig?.root,
           maxSkillBytes: skillConfig?.maxSkillBytes,
         }),
         ...deps.tools.filter((tool) => tool.name !== "load_skill"),
       ]
+      tools = tasksEnabled ? withBuiltInTaskTools(skillTools) : skillTools
     }
   }
 
@@ -214,14 +235,19 @@ async function executeTools(calls: ToolCall[], tools: Tool[], ctx: ToolContext):
       call,
       display: pendingDisplayForToolCall(call, tools),
     })
-    results.push(await executeToolCall(call, tools, ctx))
-    const result = results[results.length - 1]
-    if (result === undefined) continue
-    if (result.ok) {
+    const result = await executeToolCall(call, tools, ctx)
+    results.push(result)
+    if (result.kind === "ok") {
       await ctx.recordEvent?.("tool.completed", {
         call: result.call,
         display: result.display,
         result: result.value,
+      })
+    } else if (result.kind === "started") {
+      await ctx.recordEvent?.("task.started", {
+        callId: result.call.id,
+        task: result.task,
+        display: result.display,
       })
     } else {
       await ctx.recordEvent?.("tool.failed", {
@@ -233,6 +259,83 @@ async function executeTools(calls: ToolCall[], tools: Tool[], ctx: ToolContext):
   }
 
   return isCancelled(ctx.signal) ? { kind: "cancelled", results } : { kind: "completed", results }
+}
+
+async function drainTaskQueue(
+  invocation: InvocationState,
+  services: SessionTaskServices,
+): Promise<void> {
+  for (const message of services.queue.drain()) {
+    await invocation.recordEvent(message.kind, messagePayload(message))
+  }
+}
+
+function messagePayload(message: Message): Record<string, unknown> {
+  if (message.kind === "task.completed") {
+    return {
+      taskId: message.taskId,
+      result: message.result,
+      summary: message.summary,
+      ts: message.occurredAt,
+    }
+  }
+  if (message.kind === "task.failed") {
+    return {
+      taskId: message.taskId,
+      error: message.error,
+      summary: message.summary,
+      ts: message.occurredAt,
+    }
+  }
+  return {
+    taskId: message.taskId,
+    reason: message.reason,
+    summary: message.summary,
+    ts: message.occurredAt,
+  }
+}
+
+async function reapOrphanTasks(
+  invocation: InvocationState,
+  services: SessionTaskServices,
+): Promise<void> {
+  const startedTaskIds = new Set<string>()
+  const terminalTaskIds = new Set<string>()
+  for (const event of invocation.events) {
+    if (event.type === "task.started") {
+      const taskId = readEventTaskId(event)
+      if (taskId !== undefined) startedTaskIds.add(taskId)
+      continue
+    }
+    if (
+      event.type === "task.completed" ||
+      event.type === "task.failed" ||
+      event.type === "task.cancelled"
+    ) {
+      if (typeof event.taskId === "string") terminalTaskIds.add(event.taskId)
+    }
+  }
+  for (const taskId of startedTaskIds) {
+    if (terminalTaskIds.has(taskId)) continue
+    const known = services.registry.get(taskId)
+    if (known !== undefined && known.state === "running") continue
+    await invocation.recordEvent("task.cancelled", {
+      taskId,
+      reason: "process_exited",
+      summary: "process exited",
+    })
+  }
+}
+
+function readEventTaskId(event: Event): string | undefined {
+  if (typeof event.taskId === "string") return event.taskId
+  const task = event.task as { id?: unknown } | undefined
+  return typeof task?.id === "string" ? task.id : undefined
+}
+
+function withBuiltInTaskTools(tools: Tool[]): Tool[] {
+  const overrides = new Set(tools.map((tool) => tool.name))
+  return [...tools, ...builtInTaskTools.filter((tool) => !overrides.has(tool.name))]
 }
 
 function isCancelled(signal: AbortSignal | undefined): boolean {

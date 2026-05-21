@@ -209,6 +209,10 @@ function pushUserWrapped(rows: TranscriptRow[], cell: Cell, text: string, width:
 }
 
 function pushTool(rows: TranscriptRow[], cell: Cell, width: number): void {
+  if (cell.background !== undefined) {
+    pushBackgroundTool(rows, cell, width)
+    return
+  }
   const title = renderToolDisplayTitle(cell)
   if (cell.status === "pending") {
     pushPendingTool(rows, cell, title, width)
@@ -228,6 +232,56 @@ function pushTool(rows: TranscriptRow[], cell: Cell, width: number): void {
     failed ? "red" : "green",
     failed ? "red" : "gray",
   )
+}
+
+function pushBackgroundTool(rows: TranscriptRow[], cell: Cell, width: number): void {
+  const marker = cell.background
+  if (marker === undefined) return
+  const idSuffix = `· background ${shortTaskId(marker.taskId)}`
+  const title = renderToolDisplayTitle(cell)
+  if (marker.phase === "started") {
+    const text = `${title} · started in background · ${shortTaskId(marker.taskId)}`
+    pushDottedWrapped(rows, cell, text, width, "yellow", "gray", undefined, false, "bg-started")
+    return
+  }
+  if (marker.phase === "completed") {
+    const text = `${compactToolLine(title, cell)} ${idSuffix}`
+    const detail = expandedDetail(cell)
+    pushDottedWrapped(
+      rows,
+      cell,
+      [text, detail]
+        .filter((part): part is string => part !== undefined && part.length > 0)
+        .join("\n"),
+      width,
+      "green",
+      "gray",
+    )
+    return
+  }
+  if (marker.phase === "failed") {
+    const text = `${compactToolLine(title, cell)} ${idSuffix} failed`
+    const detail = expandedDetail(cell)
+    pushDottedWrapped(
+      rows,
+      cell,
+      [text, detail]
+        .filter((part): part is string => part !== undefined && part.length > 0)
+        .join("\n"),
+      width,
+      "red",
+      "red",
+    )
+    return
+  }
+  // cancelled
+  const reasonText = marker.reason === "process_exited" ? "process exited" : "user"
+  const text = `${title} ${idSuffix} cancelled (${reasonText})`
+  pushDottedWrapped(rows, cell, text, width, "yellow", "yellow", undefined, false, "bg-cancelled")
+}
+
+function shortTaskId(id: string, head = 12): string {
+  return id.length <= head + 1 ? id : `${id.slice(0, head)}…`
 }
 
 function pushSystem(rows: TranscriptRow[], cell: Cell, width: number): void {

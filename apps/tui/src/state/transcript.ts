@@ -1,13 +1,14 @@
 import type { Event, ToolCall, ToolDisplaySnapshot } from "@leharness/harness"
 import { collapseSkillLoadHints } from "../utils/display.js"
 import { finishReason, summarize } from "../utils/format.js"
-import type { Cell, ReadBatch, ToolStatus, TranscriptState } from "./types.js"
+import type { ActiveTask, Cell, ReadBatch, ToolStatus, TranscriptState } from "./types.js"
 
 type CellInput = Omit<Cell, "id">
 
 export function initialTranscript(): TranscriptState {
   return {
     activeAssistantIndex: undefined,
+    activeTasks: new Map(),
     cells: [],
     nextCellId: 0,
     nextReadBatchId: 0,
@@ -74,6 +75,7 @@ function updateToolInline(state: TranscriptState, index: number, update: Partial
 function cloneTranscript(state: TranscriptState): TranscriptState {
   return {
     activeAssistantIndex: state.activeAssistantIndex,
+    activeTasks: new Map(state.activeTasks),
     cells: state.cells.map((cell) => ({ ...cell })),
     nextCellId: state.nextCellId,
     nextReadBatchId: state.nextReadBatchId,
@@ -208,8 +210,126 @@ export function reduceEvent(state: TranscriptState, event: Event): TranscriptSta
         })
       }
       break
+    case "task.started":
+      handleTaskStarted(next, event)
+      break
+    case "task.completed":
+      handleTaskTerminal(next, event, "completed")
+      break
+    case "task.failed":
+      handleTaskTerminal(next, event, "failed")
+      break
+    case "task.cancelled":
+      handleTaskTerminal(next, event, "cancelled")
+      break
   }
   return next
+}
+
+function handleTaskStarted(state: TranscriptState, event: Event): void {
+  const task = readTaskRecord(event.task)
+  if (task === undefined) return
+  const display = task.display ?? fallbackTaskDisplay(task)
+  const command = task.payload?.command ?? ""
+  const active: ActiveTask = {
+    id: task.id,
+    kind: task.kind,
+    command,
+    startedAt: task.startedAt ?? new Date().toISOString(),
+    display,
+  }
+  state.activeTasks.set(task.id, active)
+  pushCell(state, {
+    background: { phase: "started", taskId: task.id },
+    display,
+    kind: "tool",
+    status: "pending",
+    text: "",
+    title: task.kind,
+  })
+}
+
+function handleTaskTerminal(
+  state: TranscriptState,
+  event: Event,
+  phase: "completed" | "failed" | "cancelled",
+): void {
+  const taskId = typeof event.taskId === "string" ? event.taskId : undefined
+  if (taskId === undefined) return
+  const active = state.activeTasks.get(taskId)
+  state.activeTasks.delete(taskId)
+  const display = active?.display ?? unknownTaskDisplay()
+  const summary = typeof event.summary === "string" ? event.summary : undefined
+  const text =
+    phase === "cancelled"
+      ? `cancelled (${typeof event.reason === "string" ? event.reason.replace("_", " ") : "user"})`
+      : (summary ?? (phase === "completed" ? "completed" : "failed"))
+  const detail = phase === "failed" || phase === "cancelled" ? readTerminalDetail(event) : undefined
+  const outcome = phase === "completed" ? "ok" : phase === "failed" ? "failed" : "cancelled"
+  const status: ToolStatus = phase === "failed" ? "failed" : "completed"
+  pushCell(state, {
+    background: {
+      phase,
+      taskId,
+      reason:
+        phase === "cancelled" && typeof event.reason === "string"
+          ? event.reason === "process_exited"
+            ? "process_exited"
+            : "user"
+          : undefined,
+    },
+    detail,
+    display: summary === undefined ? display : { ...display, summary },
+    kind: status === "failed" ? "error" : "tool",
+    outcome,
+    status,
+    text,
+    title: active?.kind ?? "task",
+  })
+}
+
+function readTaskRecord(value: unknown):
+  | {
+      id: string
+      kind: string
+      payload: { command?: string } | undefined
+      display: ToolDisplaySnapshot | undefined
+      startedAt: string | undefined
+    }
+  | undefined {
+  if (typeof value !== "object" || value === null) return undefined
+  const record = value as Record<string, unknown>
+  if (typeof record.id !== "string" || typeof record.kind !== "string") return undefined
+  const payload =
+    typeof record.payload === "object" && record.payload !== null
+      ? (record.payload as { command?: string })
+      : undefined
+  const display = readDisplay(record.display)
+  const startedAt = typeof record.startedAt === "string" ? record.startedAt : undefined
+  return { id: record.id, kind: record.kind, payload, display, startedAt }
+}
+
+function fallbackTaskDisplay(task: {
+  kind: string
+  payload?: { command?: string }
+}): ToolDisplaySnapshot {
+  return {
+    pending: task.kind,
+    completed: `${task.kind} ok`,
+    failed: `${task.kind} failed`,
+    target: task.payload?.command,
+  }
+}
+
+function unknownTaskDisplay(): ToolDisplaySnapshot {
+  return { pending: "task", completed: "task", failed: "task" }
+}
+
+function readTerminalDetail(event: Event): string | undefined {
+  const error = typeof event.error === "string" ? event.error.trim() : ""
+  if (error.length > 0) return error
+  const result = typeof event.result === "string" ? event.result.trim() : ""
+  return result.length > 0 ? result : undefined
 }
 
 function commitAssistant(state: TranscriptState, event: Event): void {

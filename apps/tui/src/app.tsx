@@ -16,6 +16,7 @@ import {
 } from "@leharness/harness"
 import { Box, Text, useApp, useInput, useStdout } from "ink"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { ActiveTasks } from "./components/active-tasks.js"
 import { Footer, Prompt } from "./components/prompt.js"
 import { QueuedMessages } from "./components/queued-messages.js"
 import { type MenuItem, SlashMenu } from "./components/slash-menu.js"
@@ -684,6 +685,7 @@ export function TuiApp({
         width={columns}
       />
       <QueuedMessages messages={queuedMessages} width={columns} />
+      <ActiveTasks tasks={transcript.activeTasks} width={columns} />
       <Prompt
         input={input}
         inputVersion={inputVersion}

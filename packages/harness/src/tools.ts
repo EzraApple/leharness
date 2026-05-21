@@ -1,5 +1,6 @@
 import type { ZodTypeAny } from "zod"
 import type { RecordEvent } from "./events.js"
+import type { SessionTaskServices, StartedTask } from "./tasks.js"
 
 export interface ToolCall {
   id: string
@@ -11,6 +12,7 @@ export interface ToolContext {
   sessionId: string
   recordEvent?: RecordEvent
   signal?: AbortSignal
+  taskServices?: SessionTaskServices
 }
 
 export interface ToolDisplay<Args = unknown> {
@@ -33,6 +35,7 @@ export interface ToolDisplaySnapshot {
 export type ToolExecuteResult =
   | { kind: "ok"; output: string; summary?: string }
   | { kind: "error"; message: string; summary?: string }
+  | { kind: "started"; task: StartedTask; summary?: string }
 
 export interface Tool<Args = unknown> {
   name: string
@@ -43,8 +46,15 @@ export interface Tool<Args = unknown> {
 }
 
 export type ToolResult =
-  | { ok: true; call: ToolCall; display: ToolDisplaySnapshot; value: string }
-  | { ok: false; call: ToolCall; display: ToolDisplaySnapshot; error: string }
+  | { kind: "ok"; call: ToolCall; display: ToolDisplaySnapshot; value: string }
+  | { kind: "error"; call: ToolCall; display: ToolDisplaySnapshot; error: string }
+  | {
+      kind: "started"
+      call: ToolCall
+      display: ToolDisplaySnapshot
+      task: StartedTask
+      summary?: string
+    }
 
 const MAX_TOOL_OUTPUT_BYTES = 16 * 1024
 
@@ -70,7 +80,7 @@ export async function executeToolCall(
   const tool = tools.find((t) => t.name === call.name)
   if (tool === undefined) {
     return {
-      ok: false,
+      kind: "error",
       call,
       display: fallbackDisplay(call),
       error: `tool not found: ${call.name}`,
@@ -85,7 +95,7 @@ export async function executeToolCall(
       })
       .join("; ")
     return {
-      ok: false,
+      kind: "error",
       call,
       display: fallbackDisplay(call),
       error: `invalid args for ${call.name}: ${message}`,
@@ -96,14 +106,23 @@ export async function executeToolCall(
     if (result.kind === "ok") {
       const value = truncateOutput(result.output)
       return {
-        ok: true,
+        kind: "ok",
         call,
         display: completedDisplay(tool, parsed.data, value, result.summary),
         value,
       }
     }
+    if (result.kind === "started") {
+      return {
+        kind: "started",
+        call,
+        display: startedDisplay(tool, parsed.data, result.task, result.summary),
+        task: result.task,
+        summary: result.summary,
+      }
+    }
     return {
-      ok: false,
+      kind: "error",
       call,
       display: failedDisplay(tool, parsed.data, result.message, result.summary),
       error: result.message,
@@ -111,7 +130,7 @@ export async function executeToolCall(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     return {
-      ok: false,
+      kind: "error",
       call,
       display: failedDisplay(tool, parsed.data, message),
       error: `tool ${call.name} threw: ${message}`,
@@ -160,6 +179,17 @@ function failedDisplay<Args>(
   const display = baseDisplay(tool, args)
   const summary = explicitSummary ?? tool.display?.summarizeError?.(error, args)
   return summary === undefined ? display : { ...display, summary }
+}
+
+function startedDisplay<Args>(
+  tool: Tool<Args>,
+  args: Args,
+  task: StartedTask,
+  explicitSummary: string | undefined,
+): ToolDisplaySnapshot {
+  const display = baseDisplay(tool, args)
+  const summary = explicitSummary ?? `started · ${task.id}`
+  return { ...display, summary }
 }
 
 function baseDisplay<Args>(tool: Tool<Args>, args: Args): ToolDisplaySnapshot {
