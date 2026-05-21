@@ -1,12 +1,12 @@
 import assert from "node:assert/strict"
-import { transcriptTestInternals } from "../dist/components/transcript.js"
+import { transcriptTestInternals } from "../src/components/transcript.js"
 import {
   appendCell,
   initialTranscript,
   reduceEvent,
   reduceText,
   setLatestToolDetailExpanded,
-} from "../dist/state/transcript.js"
+} from "../src/state/transcript.js"
 
 let state = initialTranscript()
 state = reduceText(state, "final")
@@ -64,9 +64,10 @@ state = reduceEvent(state, {
 })
 
 const toolCell = state.cells.find((cell) => cell.kind === "tool")
-assert.equal(toolCell?.display?.completed, "edited")
-assert.equal(toolCell?.display?.target, "a.ts")
-assert.equal(toolCell?.text, "Changed +1 -1 lines")
+assert.ok(toolCell)
+assert.equal(toolCell.display?.completed, "edited")
+assert.equal(toolCell.display?.target, "a.ts")
+assert.equal(toolCell.text, "Changed +1 -1 lines")
 const editRows = transcriptTestInternals.buildRows([toolCell], { running: false, width: 80 })
 assert.equal(
   editRows.some((row) => row.text.includes("edited a.ts · changed +1 -1 lines")),
