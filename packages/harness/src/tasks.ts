@@ -184,6 +184,40 @@ export function registerTaskExecutor(services: SessionTaskServices, executor: Ta
   services.executors.set(executor.kind, executor)
 }
 
+// Releases services for a session. Cancels any tasks the registry still
+// considers running by asking their executors to cancel, drains any
+// undelivered queue messages, and removes the session from the process-level
+// services map. Intended for tests and long-lived consumers that churn
+// through many sessions; the CLI / TUI don't need to call this because the
+// process owns one session for its lifetime.
+export async function disposeTaskServices(sessionId: string): Promise<void> {
+  const services = servicesBySession.get(sessionId)
+  if (services === undefined) return
+  servicesBySession.delete(sessionId)
+  const runningTaskIds = services.registry
+    .list(sessionId)
+    .filter((task) => task.state === "running")
+    .map((task) => task.id)
+  for (const taskId of runningTaskIds) {
+    const executor = services.registry.executorFor(taskId)
+    if (executor !== undefined) await executor.cancel(taskId)
+  }
+  services.queue.drain()
+}
+
+// UI-facing subscription API — lets a UI react when background work completes
+// without poking the internal MessageQueue directly.
+export function subscribeToBackgroundUpdates(sessionId: string, listener: () => void): () => void {
+  const services = getOrCreateTaskServices(sessionId)
+  return services.queue.onMessage(() => listener())
+}
+
+export function hasPendingBackgroundUpdates(sessionId: string): boolean {
+  const services = servicesBySession.get(sessionId)
+  if (services === undefined) return false
+  return services.queue.size() > 0
+}
+
 export function newTaskId(): string {
   return `task_${ulid()}`
 }

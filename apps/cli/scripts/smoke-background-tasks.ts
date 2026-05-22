@@ -1,6 +1,12 @@
 import assert from "node:assert/strict"
 import { spawn } from "node:child_process"
-import { createShellExecutor, getOrCreateTaskServices, type Task } from "@leharness/harness"
+import {
+  createShellExecutor,
+  disposeTaskServices,
+  getOrCreateTaskServices,
+  hasPendingBackgroundUpdates,
+  type Task,
+} from "@leharness/harness"
 
 const sessionId = `smoke-bg-${Date.now()}`
 const services = getOrCreateTaskServices(sessionId)
@@ -130,6 +136,40 @@ const executor = createShellExecutor({ queue: services.queue, registry: services
 
   await services.registry.whenTerminal(task.id)
   services.queue.drain()
+}
+
+// 5. disposeTaskServices cancels outstanding tasks and clears the session.
+{
+  const disposeSessionId = `smoke-bg-dispose-${Date.now()}`
+  const disposeServices = getOrCreateTaskServices(disposeSessionId)
+  const disposeExecutor = createShellExecutor({
+    queue: disposeServices.queue,
+    registry: disposeServices.registry,
+  })
+  const child = spawn("/bin/bash", ["-c", "sleep 30"], {
+    cwd: process.cwd(),
+    env: process.env,
+    stdio: ["ignore", "pipe", "pipe"],
+  })
+  const task: Task = {
+    id: "task_smoke_dispose",
+    kind: "shell",
+    sessionId: disposeSessionId,
+    state: "running",
+    startedAt: new Date().toISOString(),
+    payload: { kind: "shell", command: "sleep 30" },
+  }
+  disposeServices.registry.register(task, disposeExecutor)
+  disposeExecutor.adopt(child, task, [])
+
+  await disposeTaskServices(disposeSessionId)
+
+  // Calling getOrCreateTaskServices again on the same id returns a fresh
+  // services object — the previous one is gone.
+  const fresh = getOrCreateTaskServices(disposeSessionId)
+  assert.notEqual(fresh, disposeServices, "expected a fresh services after dispose")
+  assert.equal(fresh.registry.list(disposeSessionId).length, 0, "fresh registry should be empty")
+  assert.equal(hasPendingBackgroundUpdates(disposeSessionId), false)
 }
 
 console.log("smoke-background-tasks: shell executor + queue round-trips ok")

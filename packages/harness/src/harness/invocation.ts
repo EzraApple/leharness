@@ -86,6 +86,7 @@ export async function runInvocation(
     })
   } else {
     await invocation.recordEvent("invocation.auto", {
+      reason: "background_completion",
       provider: deps.provider.name,
       model: deps.model,
       reasoningEffort: deps.reasoningEffort,

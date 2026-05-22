@@ -5,14 +5,15 @@ import {
   discoverSkills,
   type Event,
   findModel,
-  getOrCreateTaskServices,
   type HarnessDeps,
+  hasPendingBackgroundUpdates,
   type ModelSpec,
   modelSupportsReasoning,
   qualifiedModelId,
   type ReasoningEffort,
   type RuntimeSettings,
   type Skill,
+  subscribeToBackgroundUpdates,
   updateUserSettings,
 } from "@leharness/harness"
 import { Box, Text, useApp, useInput, useStdout } from "ink"
@@ -160,18 +161,17 @@ export function TuiApp({
 
   useEffect(() => {
     if (deps.tasks === false) return
-    const services = getOrCreateTaskServices(sessionId)
     const scheduleAutoInvocation = () => {
       if (autoInvocationScheduledRef.current) return
       autoInvocationScheduledRef.current = true
       setTimeout(() => {
         autoInvocationScheduledRef.current = false
         if (runningRef.current) return
-        if (services.queue.size() === 0) return
+        if (!hasPendingBackgroundUpdates(sessionId)) return
         void startInvocationRef.current(undefined)
       }, 50)
     }
-    return services.queue.onMessage(scheduleAutoInvocation)
+    return subscribeToBackgroundUpdates(sessionId, scheduleAutoInvocation)
   }, [deps.tasks, sessionId])
 
   const refreshSkills = useCallback(() => {
@@ -389,15 +389,12 @@ export function TuiApp({
       // If background messages arrived during the loop tail without
       // tripping the queue listener (or arrived just after this finally
       // started), drain them in a fresh auto-invocation.
-      if (deps.tasks !== false) {
-        const services = getOrCreateTaskServices(sessionId)
-        if (services.queue.size() > 0 && !runningRef.current) {
-          setTimeout(() => {
-            if (!runningRef.current && services.queue.size() > 0) {
-              void startInvocation(undefined)
-            }
-          }, 50)
-        }
+      if (deps.tasks !== false && hasPendingBackgroundUpdates(sessionId) && !runningRef.current) {
+        setTimeout(() => {
+          if (!runningRef.current && hasPendingBackgroundUpdates(sessionId)) {
+            void startInvocation(undefined)
+          }
+        }, 50)
       }
     }
   }
