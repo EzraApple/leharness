@@ -126,9 +126,7 @@ async function smokeInvocationDisplay(): Promise<void> {
 
   assert.equal(await fs.readFile("invoke.txt", "utf8"), "after\n")
   const completed = events.filter((event) => event.type === "tool.completed")
-  assert.equal(completed[0]?.display?.completed, "created")
-  assert.equal(completed[0]?.display?.target, "invoke.txt")
-  assert.equal(completed[1]?.display?.completed, "edited")
-  assert.equal(completed[1]?.display?.target, "invoke.txt")
-  assert.match(String(completed[1]?.display?.summary ?? ""), /Changed \+1 -1 lines/)
+  assert.equal((completed[0]?.call as { name?: string } | undefined)?.name, "create_file")
+  assert.equal((completed[1]?.call as { name?: string } | undefined)?.name, "edit_file")
+  assert.match(String(completed[1]?.summary ?? ""), /Changed \+1 -1 lines/)
 }

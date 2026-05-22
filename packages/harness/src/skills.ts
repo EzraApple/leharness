@@ -108,12 +108,6 @@ export function createLoadSkillTool(
     description:
       "Load the full instructions for a discovered skill by name. Call this before applying a listed skill.",
     schema: loadSkillArgs,
-    display: {
-      pending: "loading",
-      completed: "loaded",
-      failed: "could not load",
-      target: (args) => `/${args.name}`,
-    },
     async execute(args, ctx: ToolContext): Promise<ToolExecuteResult> {
       const root = path.resolve(options.root ?? process.cwd())
       const skills = await discoverSkills(root)

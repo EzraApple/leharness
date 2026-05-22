@@ -35,12 +35,6 @@ state = reduceEvent(state, {
 })
 state = reduceEvent(state, {
   call: { args: { path: "a.ts" }, id: "call_1", name: "edit_file" },
-  display: {
-    completed: "edited",
-    failed: "could not edit",
-    pending: "editing",
-    target: "a.ts",
-  },
   id: "event-3",
   ts: "2026-05-07T00:00:00.000Z",
   type: "tool.started",
@@ -49,15 +43,9 @@ state = reduceEvent(state, {
 assert.equal(state.cells.find((cell) => cell.kind === "tool")?.status, "pending")
 state = reduceEvent(state, {
   call: { args: { path: "a.ts" }, id: "call_1", name: "edit_file" },
-  display: {
-    completed: "edited",
-    failed: "could not edit",
-    pending: "editing",
-    summary: "1 replacement · +1 -1 · 12 -> 13 bytes",
-    target: "a.ts",
-  },
   id: "event-4",
   result: "Edited a.ts",
+  summary: "Changed +1 -1 lines",
   ts: "2026-05-07T00:00:00.000Z",
   type: "tool.completed",
   v: 1,
@@ -80,12 +68,6 @@ state = reduceEvent(state, {
     args: { path: "README.md", content: "large file" },
     id: "call_stream",
     name: "create_file",
-  },
-  display: {
-    completed: "created",
-    failed: "could not create",
-    pending: "creating",
-    target: "README.md",
   },
   id: "event-6",
   ts: "2026-05-07T00:00:00.000Z",
@@ -110,12 +92,6 @@ state = reduceEvent(state, {
 })
 state = reduceEvent(state, {
   call: { args: { path: "README.md" }, id: "read_1", name: "read_file" },
-  display: {
-    completed: "read",
-    failed: "could not read",
-    pending: "reading",
-    target: "README.md",
-  },
   id: "event-8",
   ts: "2026-05-07T00:00:00.000Z",
   type: "tool.started",
@@ -128,12 +104,6 @@ assert.equal(
 )
 state = reduceEvent(state, {
   call: { args: { path: "README.md" }, id: "read_1", name: "read_file" },
-  display: {
-    completed: "read",
-    failed: "could not read",
-    pending: "reading",
-    target: "README.md",
-  },
   id: "event-9",
   result: "readme",
   ts: "2026-05-07T00:00:00.000Z",
@@ -274,15 +244,9 @@ for (const [index, path] of poemFiles.slice(0, 6).entries()) {
   })
   state = reduceEvent(state, {
     call: { args: { path, old_string: "old", new_string: "new" }, id, name: "edit_file" },
-    display: {
-      completed: "edited",
-      failed: "could not edit",
-      pending: "editing",
-      summary: "Changed +4 -1 lines",
-      target: path,
-    },
     id: `event-poem-edit-done-${index}`,
     result: "Edited poem",
+    summary: "Changed +4 -1 lines",
     ts: "2026-05-07T00:00:00.000Z",
     type: "tool.completed",
     v: 1,
@@ -295,12 +259,6 @@ state = reduceEvent(state, {
     id: "poem_readme",
     name: "edit_file",
   },
-  display: {
-    completed: "edited",
-    failed: "could not edit",
-    pending: "editing",
-    target: "README.md",
-  },
   id: "event-poem-readme-start",
   ts: "2026-05-07T00:00:00.000Z",
   type: "tool.started",
@@ -312,15 +270,9 @@ state = reduceEvent(state, {
     id: "poem_readme",
     name: "edit_file",
   },
-  display: {
-    completed: "edited",
-    failed: "could not edit",
-    pending: "editing",
-    summary: "Added 7 lines",
-    target: "README.md",
-  },
   id: "event-poem-readme-done",
   result: "Edited README",
+  summary: "Added 7 lines",
   ts: "2026-05-07T00:00:00.000Z",
   type: "tool.completed",
   v: 1,
@@ -351,12 +303,6 @@ state = reduceEvent(state, {
 })
 state = reduceEvent(state, {
   call: { args: { command: "pnpm test" }, id: "bash_1", name: "bash" },
-  display: {
-    completed: "ran",
-    failed: "command failed",
-    pending: "running",
-    target: "pnpm test",
-  },
   id: "event-bash-start",
   ts: "2026-05-07T00:00:00.000Z",
   type: "tool.started",
@@ -364,13 +310,6 @@ state = reduceEvent(state, {
 })
 state = reduceEvent(state, {
   call: { args: { command: "pnpm test" }, id: "bash_1", name: "bash" },
-  display: {
-    completed: "ran",
-    failed: "command failed",
-    pending: "running",
-    summary: "exit 1 · 42 lines",
-    target: "pnpm test",
-  },
   id: "event-bash-done",
   result: "$ pnpm test\nok 1\nError: snapshot mismatch\n\n[exit: 1]",
   ts: "2026-05-07T00:00:00.000Z",
@@ -379,7 +318,7 @@ state = reduceEvent(state, {
 })
 const bashCell = state.cells.find((cell) => cell.title === "bash")
 assert.equal(bashCell?.outcome, "failed")
-assert.equal(bashCell?.text, "exit 1 · 42 lines\nError: snapshot mismatch")
+assert.equal(bashCell?.text, "exit 1 · 2 lines\nError: snapshot mismatch")
 assert.equal(bashCell?.detail, "ok 1\nError: snapshot mismatch")
 expanded = setLatestToolDetailExpanded(state, true, "bash")
 assert.equal(expanded.changed, true)
@@ -392,12 +331,6 @@ state = reduceEvent(state, {
     id: "edit_fail",
     name: "edit_file",
   },
-  display: {
-    completed: "edited",
-    failed: "could not edit",
-    pending: "editing",
-    target: "poems/missing.md",
-  },
   id: "event-edit-fail-start",
   ts: "2026-05-07T00:00:00.000Z",
   type: "tool.started",
@@ -409,15 +342,9 @@ state = reduceEvent(state, {
     id: "edit_fail",
     name: "edit_file",
   },
-  display: {
-    completed: "edited",
-    failed: "could not edit",
-    pending: "editing",
-    summary: "old_string matched 0 times",
-    target: "poems/missing.md",
-  },
   error: "edit_file failed: old_string matched 0 times",
   id: "event-edit-fail-done",
+  summary: "old_string matched 0 times",
   ts: "2026-05-07T00:00:00.000Z",
   type: "tool.failed",
   v: 1,

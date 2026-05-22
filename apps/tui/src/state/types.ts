@@ -1,4 +1,4 @@
-import type { ToolDisplaySnapshot } from "@leharness/harness"
+import type { ToolDisplaySnapshot } from "../display/tools.js"
 
 type CellKind = "system" | "user" | "assistant" | "tool" | "error"
 export type ToolStatus = "pending" | "completed" | "failed"

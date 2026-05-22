@@ -20,7 +20,6 @@ import {
 } from "../tasks.js"
 import {
   executeToolCall,
-  pendingDisplayForToolCall,
   type Tool,
   type ToolCall,
   type ToolContext,
@@ -239,29 +238,26 @@ async function executeTools(calls: ToolCall[], tools: Tool[], ctx: ToolContext):
 
   for (const call of calls) {
     if (isCancelled(ctx.signal)) return { kind: "cancelled", results }
-    await ctx.recordEvent?.("tool.started", {
-      call,
-      display: pendingDisplayForToolCall(call, tools),
-    })
+    await ctx.recordEvent?.("tool.started", { call })
     const result = await executeToolCall(call, tools, ctx)
     results.push(result)
     if (result.kind === "ok") {
       await ctx.recordEvent?.("tool.completed", {
         call: result.call,
-        display: result.display,
         result: result.value,
+        summary: result.summary,
       })
     } else if (result.kind === "started") {
       await ctx.recordEvent?.("task.started", {
         callId: result.call.id,
         task: result.task,
-        display: result.display,
+        summary: result.summary,
       })
     } else {
       await ctx.recordEvent?.("tool.failed", {
         call: result.call,
-        display: result.display,
         error: result.error,
+        summary: result.summary,
       })
     }
   }

@@ -4,7 +4,6 @@ import {
   type Task,
   type Tool,
   type ToolContext,
-  type ToolDisplaySnapshot,
   type ToolExecuteResult,
 } from "@leharness/harness"
 import { z } from "zod"
@@ -49,13 +48,6 @@ export const bashTool: Tool<BashArgs> = {
   description:
     "Execute a shell command. Returns inline output if the command finishes within inline_ms; otherwise hands off to a background task and returns a task_id the model can wait_task / read_task / cancel_task. Default inline_ms is 5000.",
   schema: bashArgs,
-  display: {
-    pending: "running",
-    completed: "ran",
-    failed: "command failed",
-    target: (args) => args.command,
-    summarize: (output) => summarizeCommand(output),
-  },
   async execute(args, ctx: ToolContext): Promise<ToolExecuteResult> {
     const child = spawn("/bin/bash", ["-c", args.command], {
       cwd: process.cwd(),
@@ -71,7 +63,7 @@ export const bashTool: Tool<BashArgs> = {
 
     if (outcome.kind === "inline") {
       const output = formatInlineOutput(args.command, buffer, outcome.code, outcome.signal)
-      return { kind: "ok", output }
+      return { kind: "ok", output, summary: summarizeCommand(output) }
     }
     if (outcome.kind === "error") {
       return { kind: "error", message: outcome.message }
@@ -86,7 +78,7 @@ export const bashTool: Tool<BashArgs> = {
         return { kind: "error", message: closed.message }
       }
       const output = formatInlineOutput(args.command, buffer, closed.code, closed.signal)
-      return { kind: "ok", output }
+      return { kind: "ok", output, summary: summarizeCommand(output) }
     }
 
     const task = makeShellTask(args.command, ctx.sessionId)
@@ -164,12 +156,6 @@ function formatInlineOutput(
 }
 
 function makeShellTask(command: string, sessionId: string): Task {
-  const display: ToolDisplaySnapshot = {
-    pending: "running",
-    completed: "ran",
-    failed: "command failed",
-    target: command,
-  }
   return {
     id: newTaskId(),
     kind: "shell",
@@ -177,7 +163,6 @@ function makeShellTask(command: string, sessionId: string): Task {
     state: "running",
     startedAt: new Date().toISOString(),
     payload: { kind: "shell", command },
-    display,
   }
 }
 

@@ -21,7 +21,6 @@ const executor = createShellExecutor({ queue: services.queue, registry: services
     state: "running",
     startedAt: new Date().toISOString(),
     payload: { kind: "shell", command: "echo hi; sleep 0.05" },
-    display: { pending: "running", completed: "ran", failed: "command failed", target: "echo hi" },
   }
   services.registry.register(task, executor)
   executor.adopt(child, task, [])
@@ -53,7 +52,6 @@ const executor = createShellExecutor({ queue: services.queue, registry: services
     state: "running",
     startedAt: new Date().toISOString(),
     payload: { kind: "shell", command: "exit 3" },
-    display: { pending: "running", completed: "ran", failed: "command failed", target: "exit 3" },
   }
   services.registry.register(task, executor)
   executor.adopt(child, task, [])
@@ -87,7 +85,6 @@ const executor = createShellExecutor({ queue: services.queue, registry: services
     state: "running",
     startedAt: new Date().toISOString(),
     payload: { kind: "shell", command: "sleep 30" },
-    display: { pending: "running", completed: "ran", failed: "command failed", target: "sleep 30" },
   }
   services.registry.register(task, executor)
   executor.adopt(child, task, [])
@@ -119,12 +116,6 @@ const executor = createShellExecutor({ queue: services.queue, registry: services
     state: "running",
     startedAt: new Date().toISOString(),
     payload: { kind: "shell", command: "echo first; sleep 0.5; echo second" },
-    display: {
-      pending: "running",
-      completed: "ran",
-      failed: "command failed",
-      target: "snapshot test",
-    },
   }
   services.registry.register(task, executor)
   executor.adopt(child, task, [])

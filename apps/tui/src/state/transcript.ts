@@ -1,4 +1,11 @@
-import type { Event, ToolCall, ToolDisplaySnapshot } from "@leharness/harness"
+import type { Event, TaskKind, ToolCall } from "@leharness/harness"
+import {
+  completedSnapshotForCall,
+  failedSnapshotForCall,
+  pendingSnapshotForCall,
+  snapshotForTaskKind,
+  type ToolDisplaySnapshot,
+} from "../display/tools.js"
 import { collapseSkillLoadHints } from "../utils/display.js"
 import { finishReason, summarize } from "../utils/format.js"
 import type { ActiveTask, Cell, ReadBatch, ToolStatus, TranscriptState } from "./types.js"
@@ -161,11 +168,12 @@ export function reduceEvent(state: TranscriptState, event: Event): TranscriptSta
       const call = readToolCall(event.call)
       if (call === undefined) break
       if (startReadBatchTool(next, call)) break
+      const display = pendingSnapshotForCall(call)
       const existingIndex = next.toolCellById.get(call.id)
       if (existingIndex !== undefined && next.cells[existingIndex] !== undefined) {
         updateToolInline(next, existingIndex, {
           detail: undefined,
-          display: readDisplay(event.display),
+          display,
           expanded: false,
           kind: "tool",
           outcome: undefined,
@@ -176,7 +184,7 @@ export function reduceEvent(state: TranscriptState, event: Event): TranscriptSta
         break
       }
       const index = appendCellInline(next, {
-        display: readDisplay(event.display),
+        display,
         expanded: false,
         kind: "tool",
         status: "pending",
@@ -232,7 +240,8 @@ export function reduceEvent(state: TranscriptState, event: Event): TranscriptSta
 function handleTaskStarted(state: TranscriptState, event: Event): void {
   const task = readTaskRecord(event.task)
   if (task === undefined) return
-  const display = task.display ?? fallbackTaskDisplay(task)
+  const summary = typeof event.summary === "string" ? event.summary : undefined
+  const display = snapshotForTaskKind(task.kind as TaskKind, task.payload, summary)
   const command = task.payload?.command ?? ""
   const active: ActiveTask = {
     id: task.id,
@@ -276,8 +285,10 @@ function handleTaskTerminal(
   if (taskId === undefined) return
   const active = state.activeTasks.get(taskId)
   state.activeTasks.delete(taskId)
-  const display = active?.display ?? unknownTaskDisplay()
   const summary = typeof event.summary === "string" ? event.summary : undefined
+  const display =
+    active?.display ??
+    snapshotForTaskKind((active?.kind ?? "shell") as TaskKind, undefined, summary)
   const text =
     phase === "cancelled"
       ? `cancelled (${typeof event.reason === "string" ? event.reason.replace("_", " ") : "user"})`
@@ -311,7 +322,6 @@ function readTaskRecord(value: unknown):
       id: string
       kind: string
       payload: { command?: string } | undefined
-      display: ToolDisplaySnapshot | undefined
       startedAt: string | undefined
     }
   | undefined {
@@ -322,25 +332,8 @@ function readTaskRecord(value: unknown):
     typeof record.payload === "object" && record.payload !== null
       ? (record.payload as { command?: string })
       : undefined
-  const display = readDisplay(record.display)
   const startedAt = typeof record.startedAt === "string" ? record.startedAt : undefined
-  return { id: record.id, kind: record.kind, payload, display, startedAt }
-}
-
-function fallbackTaskDisplay(task: {
-  kind: string
-  payload?: { command?: string }
-}): ToolDisplaySnapshot {
-  return {
-    pending: task.kind,
-    completed: `${task.kind} ok`,
-    failed: `${task.kind} failed`,
-    target: task.payload?.command,
-  }
-}
-
-function unknownTaskDisplay(): ToolDisplaySnapshot {
-  return { pending: "task", completed: "task", failed: "task" }
+  return { id: record.id, kind: record.kind, payload, startedAt }
 }
 
 function readTerminalDetail(event: Event): string | undefined {
@@ -363,7 +356,13 @@ function commitAssistant(state: TranscriptState, event: Event): void {
 function completeTool(state: TranscriptState, event: Event, status: ToolStatus): void {
   const call = readToolCall(event.call)
   const output = status === "completed" ? String(event.result ?? "") : String(event.error ?? "")
-  const display = readDisplay(event.display)
+  const summary = typeof event.summary === "string" ? event.summary : undefined
+  const display =
+    call === undefined
+      ? undefined
+      : status === "completed"
+        ? completedSnapshotForCall(call, output, summary)
+        : failedSnapshotForCall(call, output, summary)
   if (call !== undefined && completeReadBatchTool(state, call, display, output, status)) return
   const text = toolCellText(call, display, output, status)
   const detail = toolCellDetail(call, output, status)
@@ -596,25 +595,6 @@ function readToolCalls(value: unknown): ToolCall[] {
 
 function readToolCall(value: unknown): ToolCall | undefined {
   return isToolCall(value) ? value : undefined
-}
-
-function readDisplay(value: unknown): ToolDisplaySnapshot | undefined {
-  if (typeof value !== "object" || value === null) return undefined
-  const candidate = value as Record<string, unknown>
-  if (
-    typeof candidate.pending !== "string" ||
-    typeof candidate.completed !== "string" ||
-    typeof candidate.failed !== "string"
-  ) {
-    return undefined
-  }
-  return {
-    completed: candidate.completed,
-    failed: candidate.failed,
-    pending: candidate.pending,
-    summary: typeof candidate.summary === "string" ? candidate.summary : undefined,
-    target: typeof candidate.target === "string" ? candidate.target : undefined,
-  }
 }
 
 function isToolCall(value: unknown): value is ToolCall {

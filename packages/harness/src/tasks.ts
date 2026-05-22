@@ -1,6 +1,6 @@
 import { ulid } from "ulid"
 import { z } from "zod"
-import type { Tool, ToolContext, ToolDisplaySnapshot, ToolExecuteResult } from "./tools.js"
+import type { Tool, ToolContext, ToolExecuteResult } from "./tools.js"
 
 export type TaskKind = "shell" // | "delegated" | "compaction" — reserved for future plans
 
@@ -17,7 +17,6 @@ export interface Task {
   state: TaskState
   startedAt: string
   payload: TaskPayload
-  display: ToolDisplaySnapshot
 }
 
 export interface StartedTask {
@@ -25,7 +24,6 @@ export interface StartedTask {
   kind: TaskKind
   sessionId: string
   payload: TaskPayload
-  display: ToolDisplaySnapshot
   startedAt: string
 }
 
@@ -190,10 +188,6 @@ export function newTaskId(): string {
   return `task_${ulid()}`
 }
 
-export function shortId(id: string, head = 10): string {
-  return id.length <= head + 1 ? id : `${id.slice(0, head)}…`
-}
-
 const DEFAULT_WAIT_TIMEOUT_MS = 60_000
 const MAX_WAIT_TIMEOUT_MS = 5 * 60_000
 
@@ -216,12 +210,6 @@ export const waitTaskTool: Tool<WaitTaskArgs> = {
   description:
     "Block until a background task reaches a terminal state (completed, failed, cancelled) or the timeout elapses. Does not return the task output — call read_task for that. Times out without killing the task.",
   schema: waitTaskArgs,
-  display: {
-    pending: "waiting on",
-    completed: "finished waiting on",
-    failed: "wait failed for",
-    target: (args) => shortId(args.task_id),
-  },
   async execute(args, ctx: ToolContext): Promise<ToolExecuteResult> {
     const services = ctx.taskServices
     if (services === undefined) {
@@ -275,13 +263,6 @@ export const readTaskTool: Tool<ReadTaskArgs> = {
   description:
     "Read the current accumulated output of a background task, optionally from a byte cursor. Returns a 'next_byte_cursor' so callers can poll incrementally. The task continues running.",
   schema: readTaskArgs,
-  display: {
-    pending: "reading",
-    completed: "read",
-    failed: "read failed for",
-    target: (args) => shortId(args.task_id),
-    summarize: (output) => firstLineSummary(output),
-  },
   async execute(args, ctx: ToolContext): Promise<ToolExecuteResult> {
     const services = ctx.taskServices
     if (services === undefined) {
@@ -330,12 +311,6 @@ export const cancelTaskTool: Tool<CancelTaskArgs> = {
   description:
     "Ask the executor to cancel a background task. For shell tasks this sends SIGTERM then SIGKILL. The cancellation is asynchronous — a task.cancelled event lands on completion.",
   schema: cancelTaskArgs,
-  display: {
-    pending: "cancelling",
-    completed: "cancelled",
-    failed: "cancel failed for",
-    target: (args) => shortId(args.task_id),
-  },
   async execute(args, ctx: ToolContext): Promise<ToolExecuteResult> {
     const services = ctx.taskServices
     if (services === undefined) {
@@ -400,10 +375,4 @@ function raceWithTimeout<T>(
         resolve({ kind: "timeout" })
       })
   })
-}
-
-function firstLineSummary(output: string): string {
-  const firstLine = output.split("\n").find((line) => line.trim().length > 0)
-  if (firstLine === undefined) return "no output"
-  return firstLine.length > 80 ? `${firstLine.slice(0, 77)}…` : firstLine
 }
