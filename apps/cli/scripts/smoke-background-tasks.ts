@@ -103,7 +103,7 @@ const executor = createShellExecutor({ queue: services.queue, registry: services
   assert.ok(cancel, "expected a Message for the cancelled task")
   assert.equal(cancel.kind, "task.cancelled")
   if (cancel.kind === "task.cancelled") {
-    assert.equal(cancel.reason, "user")
+    assert.equal(cancel.reason, "parent")
   }
 }
 

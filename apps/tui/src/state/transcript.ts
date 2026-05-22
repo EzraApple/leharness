@@ -304,7 +304,9 @@ function handleTaskTerminal(
         phase === "cancelled" && typeof event.reason === "string"
           ? event.reason === "process_exited"
             ? "process_exited"
-            : "user"
+            : event.reason === "parent"
+              ? "parent"
+              : "user"
           : undefined,
     },
     detail,

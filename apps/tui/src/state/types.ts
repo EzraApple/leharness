@@ -8,7 +8,7 @@ type BackgroundPhase = "started" | "completed" | "failed" | "cancelled"
 interface BackgroundMarker {
   phase: BackgroundPhase
   taskId: string
-  reason?: "user" | "process_exited"
+  reason?: "parent" | "user" | "process_exited"
 }
 
 export interface Cell {

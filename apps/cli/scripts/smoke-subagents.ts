@@ -8,7 +8,7 @@
 //      can finish before the child does; the next runInvocation(undefined)
 //      picks up task.completed.
 //   4. Cancellation — cancel_task aborts the child's runInvocation; parent
-//      sees task.cancelled(reason: "user").
+//      sees task.cancelled(reason: "parent").
 //   5. Unknown preset — spawn_subagent({ type: "nope" }) returns a clean
 //      tool error without crashing the loop.
 
@@ -351,7 +351,7 @@ function parentDeps(provider: Provider): HarnessDeps {
   const events = await runInvocation(parentSessionId, undefined, parentDeps(drainProvider))
   const cancelledEvent = events.find((event) => event.type === "task.cancelled")
   assert.ok(cancelledEvent, "expected task.cancelled drained")
-  assert.equal((cancelledEvent as { reason?: string }).reason, "user")
+  assert.equal((cancelledEvent as { reason?: string }).reason, "parent")
 
   const started = findStartedTask(events)
   if (started?.payload.childSessionId) await disposeTaskServices(started.payload.childSessionId)

@@ -157,7 +157,9 @@ export function createSubagentExecutor(deps: {
       kind: "task.cancelled",
       taskId: record.task.id,
       occurredAt: new Date().toISOString(),
-      reason: "user",
+      // cancel() is only reachable via the cancel_task tool — i.e. the
+      // parent agent decided to stop this subagent.
+      reason: "parent",
       summary: summary ?? "cancelled",
     })
   }
