@@ -14,13 +14,15 @@ import { ulid } from "ulid"
 import { z } from "zod"
 import type { Tool, ToolContext, ToolExecuteResult } from "./tools.js"
 
-export type TaskKind = "shell" // | "delegated" | "compaction" — reserved for future plans
+export type TaskKind = "shell" | "delegated" // | "compaction" — reserved for a future plan
 
 export type TaskState = "running" | "completed" | "failed" | "cancelled"
 
 export type CancelReason = "user" | "process_exited"
 
-export type TaskPayload = { kind: "shell"; command: string }
+export type TaskPayload =
+  | { kind: "shell"; command: string }
+  | { kind: "delegated"; childSessionId: string; presetName?: string; prompt: string }
 
 export interface Task {
   id: string

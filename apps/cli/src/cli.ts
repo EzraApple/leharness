@@ -7,11 +7,13 @@ import {
   buildProvider,
   defaultModelFor,
   enableShellRuntime,
+  enableSubagentRuntime,
   getOrCreateTaskServices,
   type HarnessDeps,
   loadEvents,
   loadUserSettings,
   type Provider,
+  registerSubagentPreset,
   resolveLeharnessHome,
   runInvocation,
   type UserSettings,
@@ -19,7 +21,9 @@ import {
 import { runTui } from "@leharness/tui"
 import { ulid } from "ulid"
 import { LiveRenderer } from "./render.js"
+import { bashTool } from "./tools/bash.js"
 import { builtinTools } from "./tools/index.js"
+import { readFileTool } from "./tools/read_file.js"
 
 const cliVersion = readCliVersion()
 const CLI_SYSTEM_PROMPT =
@@ -89,7 +93,20 @@ export async function main(argv: string[]): Promise<number> {
     reasoningEffort: runtime.reasoningEffort,
   }
   const sessionId = args.sessionId ?? ulid()
-  enableShellRuntime(getOrCreateTaskServices(sessionId))
+  const services = getOrCreateTaskServices(sessionId)
+  enableShellRuntime(services)
+  enableSubagentRuntime(
+    services,
+    {
+      provider,
+      model: deps.model,
+      systemPrompt: deps.systemPrompt,
+      tools: deps.tools,
+      reasoningEffort: deps.reasoningEffort,
+    },
+    runInvocation,
+  )
+  registerSampleSubagents(services)
 
   if (args.mode === "one_shot") {
     if (args.prompt === undefined) {
@@ -121,6 +138,23 @@ export async function main(argv: string[]): Promise<number> {
     return 1
   }
   return 0
+}
+
+function registerSampleSubagents(services: ReturnType<typeof getOrCreateTaskServices>): void {
+  registerSubagentPreset(services, {
+    name: "explore",
+    description: "Read-only codebase exploration. Find references, sketch the layout, summarize.",
+    systemPrompt:
+      "You are a read-only codebase explorer. You have read_file and bash (for ls, grep, rg, git, etc.) — you do not have edit or create tools. Your job is to find things and report what you found concisely. Do not propose changes; the parent agent will decide what to do with your findings.",
+    tools: [readFileTool, bashTool],
+  })
+  registerSubagentPreset(services, {
+    name: "plan",
+    description: "Design implementation plans for a focused task. Read-only.",
+    systemPrompt:
+      "You are a planning assistant. You have read_file and bash (for ls, grep, rg, git, etc.) — you do not have edit or create tools. Your job is to read the relevant code and produce a concrete, step-ordered implementation plan. Return the plan as your final message; the parent agent will execute or hand it off.",
+    tools: [readFileTool, bashTool],
+  })
 }
 
 function resolveRuntime(
