@@ -217,9 +217,14 @@ SubagentExecutor.cancel(taskId):
   - that triggers task.cancelled posting in the .start() chain above
 
 SubagentExecutor.snapshot(taskId):
-  - read the child's events from disk
-  - return the last assistant text + step count as a snapshot
-  - this is what read_task on a delegated task returns
+  - return a formatted recent-transcript view of the child's events
+    accumulated via onEvent — last N events (model.completed turns,
+    tool.started, tool.completed, agent.finished) formatted one-per-line,
+    bounded by the same 16KB cap as bash output. Old events drop from the
+    head; newest stay.
+  - this is what read_task on a delegated task returns. The full
+    transcript stays on disk at .leharness/sessions/<childSessionId>
+    for inspector UIs to read.
 ```
 
 The child runs in the same process. Each child gets its own
@@ -307,9 +312,9 @@ Ruled out for this plan:
   `task.completed` event with the final result, not turn-by-turn updates.
   Streaming would need a new `task.progress` event type; not worth it
   yet.
-- A `read_task` snapshot that shows the child's full transcript. v1
-  returns just the last assistant text. A future read_task could format
-  the child's recent turns.
+- A `read_task` snapshot that shows the child's *full* transcript. v1
+  returns a bounded recent-events view (one line per event, 16KB cap).
+  The whole transcript stays on disk for a future inspector to load.
 - TUI rendering of the child's transcript inline. The TUI shows the
   delegated task cell like any other background task. Drilling into the
   child's log is a future inspector feature.
