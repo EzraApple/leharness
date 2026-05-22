@@ -6,12 +6,12 @@ import { fileURLToPath } from "node:url"
 import {
   buildProvider,
   defaultModelFor,
+  enableShellRuntime,
   getOrCreateTaskServices,
   type HarnessDeps,
   loadEvents,
   loadUserSettings,
   type Provider,
-  registerTaskExecutor,
   resolveLeharnessHome,
   runInvocation,
   type UserSettings,
@@ -20,7 +20,6 @@ import { runTui } from "@leharness/tui"
 import { ulid } from "ulid"
 import { LiveRenderer } from "./render.js"
 import { builtinTools } from "./tools/index.js"
-import { createShellExecutor } from "./tools/shell-executor.js"
 
 const cliVersion = readCliVersion()
 const CLI_SYSTEM_PROMPT =
@@ -90,7 +89,7 @@ export async function main(argv: string[]): Promise<number> {
     reasoningEffort: runtime.reasoningEffort,
   }
   const sessionId = args.sessionId ?? ulid()
-  ensureShellExecutor(sessionId)
+  enableShellRuntime(getOrCreateTaskServices(sessionId))
 
   if (args.mode === "one_shot") {
     if (args.prompt === undefined) {
@@ -122,15 +121,6 @@ export async function main(argv: string[]): Promise<number> {
     return 1
   }
   return 0
-}
-
-function ensureShellExecutor(sessionId: string): void {
-  const services = getOrCreateTaskServices(sessionId)
-  if (services.executors.has("shell")) return
-  registerTaskExecutor(
-    services,
-    createShellExecutor({ queue: services.queue, registry: services.registry }),
-  )
 }
 
 function resolveRuntime(

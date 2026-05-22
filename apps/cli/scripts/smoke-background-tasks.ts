@@ -1,7 +1,6 @@
 import assert from "node:assert/strict"
 import { spawn } from "node:child_process"
-import { getOrCreateTaskServices, type Task } from "@leharness/harness"
-import { createShellExecutor } from "../src/tools/shell-executor.js"
+import { createShellExecutor, getOrCreateTaskServices, type Task } from "@leharness/harness"
 
 const sessionId = `smoke-bg-${Date.now()}`
 const services = getOrCreateTaskServices(sessionId)
