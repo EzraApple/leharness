@@ -13,7 +13,6 @@ import type { Provider, ToolCallDelta } from "../provider/index.js"
 import type { SkillOptions } from "../skills.js"
 import { getOrCreateTaskServices } from "../tasks.js"
 import type { Tool } from "../tools.js"
-import { isCancelled } from "./cancellation.js"
 import { executeTools } from "./execute-tools.js"
 import { sendPrompt } from "./model-call.js"
 import { preparePrompt } from "./prepare-prompt.js"
@@ -21,6 +20,10 @@ import { endInvocation, loadInvocationState } from "./state.js"
 import { drainTaskQueue, reapOrphanTasks } from "./task-drain.js"
 
 export const DEFAULT_MAX_STEPS = 25
+
+// AbortSignal.aborted is readonly so TS narrows it after a single ===-check;
+// wrap the read so each loop iteration re-evaluates it.
+const aborted = (signal: AbortSignal | undefined): boolean => signal?.aborted === true
 
 export interface HarnessDeps {
   provider: Provider
@@ -78,7 +81,7 @@ export async function runInvocation(
   }
 
   for (let stepNumber = 1; stepNumber <= maxSteps; stepNumber++) {
-    if (isCancelled(signal)) return endInvocation(invocation, "cancelled")
+    if (aborted(signal)) return endInvocation(invocation, "cancelled")
 
     if (stepNumber > 1 && taskServices !== undefined) {
       await drainTaskQueue(invocation, taskServices)
@@ -89,7 +92,7 @@ export async function runInvocation(
     const preparedPrompt = await preparePrompt(invocation, userText, deps, options)
     const prompt = await compact(preparedPrompt.input)
 
-    if (isCancelled(signal)) return endInvocation(invocation, "cancelled")
+    if (aborted(signal)) return endInvocation(invocation, "cancelled")
 
     const promptResult = await sendPrompt(provider, prompt, signal)
     if (promptResult.kind === "cancelled") {

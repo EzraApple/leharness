@@ -14,7 +14,6 @@ import {
   type ToolContext,
   type ToolResult,
 } from "../tools.js"
-import { isCancelled } from "./cancellation.js"
 
 type ToolRun =
   | { kind: "completed"; results: ToolResult[] }
@@ -28,7 +27,7 @@ export async function executeTools(
   const results: ToolResult[] = []
 
   for (const call of calls) {
-    if (isCancelled(ctx.signal)) return { kind: "cancelled", results }
+    if (ctx.signal?.aborted === true) return { kind: "cancelled", results }
     await ctx.recordEvent?.("tool.started", { call })
     const result = await executeToolCall(call, tools, ctx)
     results.push(result)
@@ -53,5 +52,7 @@ export async function executeTools(
     }
   }
 
-  return isCancelled(ctx.signal) ? { kind: "cancelled", results } : { kind: "completed", results }
+  return ctx.signal?.aborted === true
+    ? { kind: "cancelled", results }
+    : { kind: "completed", results }
 }

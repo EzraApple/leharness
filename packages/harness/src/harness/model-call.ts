@@ -6,7 +6,6 @@
 
 import { buildRequest, type PromptInput } from "../prompt.js"
 import type { Provider, ProviderResponse, ToolCallDelta } from "../provider/index.js"
-import { errorMessage, isCancelled, isProviderCancelled } from "./cancellation.js"
 
 type PromptResult =
   | { kind: "completed"; response: ProviderResponse }
@@ -26,7 +25,7 @@ export async function sendPrompt(
       forwardText === undefined
         ? undefined
         : (delta: string) => {
-            if (isCancelled(signal)) return
+            if (signal?.aborted === true) return
             emittedText += delta
             forwardText(delta)
           }
@@ -35,16 +34,18 @@ export async function sendPrompt(
       forwardToolCallDelta === undefined
         ? undefined
         : (delta: ToolCallDelta) => {
-            if (isCancelled(signal)) return
+            if (signal?.aborted === true) return
             forwardToolCallDelta(delta)
           }
     const response = await waitForProvider(() => provider.call(request), signal)
-    return isCancelled(signal)
+    return signal?.aborted === true
       ? { kind: "cancelled", text: emittedText }
       : { kind: "completed", response }
   } catch (err) {
-    if (isProviderCancelled(err, signal)) return { kind: "cancelled", text: emittedText }
-    return { kind: "failed", error: errorMessage(err) }
+    if (signal?.aborted === true || (err instanceof DOMException && err.name === "AbortError")) {
+      return { kind: "cancelled", text: emittedText }
+    }
+    return { kind: "failed", error: err instanceof Error ? err.message : String(err) }
   }
 }
 
