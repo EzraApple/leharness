@@ -1,3 +1,10 @@
+// events.ts
+// The session log primitives. Events are the source of truth — every session
+// is a JSONL file under .leharness/sessions/<id>/events.jsonl, appended one
+// line at a time, never edited. Everything else in the kernel is a projection
+// of this log. Single-writer discipline: the invocation loop is the only
+// thing that should call appendEvent.
+
 import { promises as fs } from "node:fs"
 import path from "node:path"
 import { ulid } from "ulid"

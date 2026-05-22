@@ -1,3 +1,12 @@
+// skills.ts
+// Workspace-discovered skills (SKILL.md files under .leharness/skills,
+// .agents/skills, .claude/skills). Three responsibilities:
+//   1. discoverSkills — read + parse skill files from the workspace
+//   2. renderSkillCatalog — produce the compact catalog appended to the
+//      system prompt so the model can pick one before loading its body
+//   3. createLoadSkillTool — built-in tool the model calls to load a
+//      specific skill's full instructions into the next prompt
+
 import * as crypto from "node:crypto"
 import type { Dirent } from "node:fs"
 import * as fs from "node:fs/promises"
@@ -108,12 +117,6 @@ export function createLoadSkillTool(
     description:
       "Load the full instructions for a discovered skill by name. Call this before applying a listed skill.",
     schema: loadSkillArgs,
-    display: {
-      pending: "loading",
-      completed: "loaded",
-      failed: "could not load",
-      target: (args) => `/${args.name}`,
-    },
     async execute(args, ctx: ToolContext): Promise<ToolExecuteResult> {
       const root = path.resolve(options.root ?? process.cwd())
       const skills = await discoverSkills(root)

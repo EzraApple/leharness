@@ -1,28 +1,29 @@
+// invocation.ts
+// The harness's main loop. One call to runInvocation drives a session from
+// the user's text (or an auto-trigger) through model steps + tool execution
+// + background-task drains until the model finishes, max-steps is hit, or
+// the AbortSignal fires. Everything else in this directory exists to keep
+// this loop short enough to read top-to-bottom.
+
 import { compact } from "../compaction/index.js"
 import type { Event } from "../events.js"
 import type { ReasoningEffort } from "../models.js"
-import { buildInput, buildRequest, type CompactionOptions, type PromptInput } from "../prompt.js"
-import type { Provider, ProviderResponse, ToolCallDelta } from "../provider/index.js"
-import {
-  createLoadSkillTool,
-  discoverSkills,
-  recentLoadedSkillNames,
-  renderSkillCatalog,
-  type SkillOptions,
-  skillOptionsEnabled,
-  withSkillCatalog,
-} from "../skills.js"
-import {
-  executeToolCall,
-  pendingDisplayForToolCall,
-  type Tool,
-  type ToolCall,
-  type ToolContext,
-  type ToolResult,
-} from "../tools.js"
-import { endInvocation, type InvocationState, loadInvocationState } from "./state.js"
+import type { CompactionOptions } from "../prompt.js"
+import type { Provider, ToolCallDelta } from "../provider/index.js"
+import type { SkillOptions } from "../skills.js"
+import { getOrCreateTaskServices } from "../tasks.js"
+import type { Tool } from "../tools.js"
+import { executeTools } from "./execute-tools.js"
+import { sendPrompt } from "./model-call.js"
+import { preparePrompt } from "./prepare-prompt.js"
+import { endInvocation, loadInvocationState } from "./state.js"
+import { drainTaskQueue, reapOrphanTasks } from "./task-drain.js"
 
 export const DEFAULT_MAX_STEPS = 25
+
+// AbortSignal.aborted is readonly so TS narrows it after a single ===-check;
+// wrap the read so each loop iteration re-evaluates it.
+const aborted = (signal: AbortSignal | undefined): boolean => signal?.aborted === true
 
 export interface HarnessDeps {
   provider: Provider
@@ -35,6 +36,7 @@ export interface HarnessDeps {
   compaction?: CompactionOptions
   reasoningEffort?: ReasoningEffort
   skills?: SkillOptions | false
+  tasks?: boolean
 }
 
 export interface RunOptions {
@@ -45,46 +47,52 @@ export interface RunOptions {
   signal?: AbortSignal
 }
 
-type PromptResult =
-  | { kind: "completed"; response: ProviderResponse }
-  | { kind: "cancelled"; text: string }
-  | { kind: "failed"; error: string }
-
-type ToolRun =
-  | { kind: "completed"; results: ToolResult[] }
-  | { kind: "cancelled"; results: ToolResult[] }
-
-interface PreparedPrompt {
-  input: PromptInput
-  tools: Tool[]
-}
-
 export async function runInvocation(
   sessionId: string,
-  userText: string,
+  userText: string | undefined,
   deps: HarnessDeps,
   options: RunOptions = {},
 ): Promise<Event[]> {
   const { provider, maxSteps = DEFAULT_MAX_STEPS } = deps
   const signal = options.signal
   const invocation = await loadInvocationState(sessionId, options)
+  const tasksEnabled = deps.tasks !== false
+  const taskServices = tasksEnabled ? getOrCreateTaskServices(sessionId) : undefined
 
-  await invocation.recordEvent("invocation.received", {
-    text: userText,
-    provider: deps.provider.name,
-    model: deps.model,
-    reasoningEffort: deps.reasoningEffort,
-  })
+  if (userText !== undefined && userText.length > 0) {
+    await invocation.recordEvent("invocation.received", {
+      text: userText,
+      provider: deps.provider.name,
+      model: deps.model,
+      reasoningEffort: deps.reasoningEffort,
+    })
+  } else {
+    await invocation.recordEvent("invocation.auto", {
+      reason: "background_completion",
+      provider: deps.provider.name,
+      model: deps.model,
+      reasoningEffort: deps.reasoningEffort,
+    })
+  }
+
+  if (taskServices !== undefined) {
+    await drainTaskQueue(invocation, taskServices)
+    await reapOrphanTasks(invocation, taskServices)
+  }
 
   for (let stepNumber = 1; stepNumber <= maxSteps; stepNumber++) {
-    if (isCancelled(signal)) return endInvocation(invocation, "cancelled")
+    if (aborted(signal)) return endInvocation(invocation, "cancelled")
+
+    if (stepNumber > 1 && taskServices !== undefined) {
+      await drainTaskQueue(invocation, taskServices)
+    }
 
     await invocation.recordEvent("step.started", { stepNumber })
 
     const preparedPrompt = await preparePrompt(invocation, userText, deps, options)
     const prompt = await compact(preparedPrompt.input)
 
-    if (isCancelled(signal)) return endInvocation(invocation, "cancelled")
+    if (aborted(signal)) return endInvocation(invocation, "cancelled")
 
     const promptResult = await sendPrompt(provider, prompt, signal)
     if (promptResult.kind === "cancelled") {
@@ -112,157 +120,10 @@ export async function runInvocation(
       sessionId,
       recordEvent: invocation.recordEvent,
       signal,
+      taskServices,
     })
     if (toolRun.kind === "cancelled") return endInvocation(invocation, "cancelled")
   }
 
   return endInvocation(invocation, "max_steps", { maxSteps })
-}
-
-async function preparePrompt(
-  invocation: InvocationState,
-  userText: string,
-  deps: HarnessDeps,
-  options: RunOptions,
-): Promise<PreparedPrompt> {
-  const baseSystem = deps.systemPrompt
-  const skillConfig = deps.skills === false ? undefined : deps.skills
-  let system = baseSystem
-  let tools = deps.tools
-
-  if (skillOptionsEnabled(deps.skills)) {
-    const discoveredSkills = await discoverSkills(skillConfig?.root)
-    if (discoveredSkills.length > 0) {
-      const catalog = renderSkillCatalog(discoveredSkills, {
-        budgetChars: skillConfig?.catalogBudgetChars,
-        includePaths: skillConfig?.includePaths,
-        queryText: userText,
-        recentSkillNames: recentLoadedSkillNames(invocation.events),
-      })
-      system = withSkillCatalog(baseSystem, catalog)
-      tools = [
-        createLoadSkillTool({
-          root: skillConfig?.root,
-          maxSkillBytes: skillConfig?.maxSkillBytes,
-        }),
-        ...deps.tools.filter((tool) => tool.name !== "load_skill"),
-      ]
-    }
-  }
-
-  return {
-    input: buildInput(invocation.events, tools, {
-      sessionId: invocation.sessionId,
-      provider: deps.provider,
-      model: deps.model,
-      system,
-      temperature: deps.temperature,
-      maxOutputTokens: deps.maxOutputTokens,
-      reasoningEffort: deps.reasoningEffort,
-      onText: options.onText,
-      onReasoningText: options.onReasoningText,
-      onToolCallDelta: options.onToolCallDelta,
-      signal: options.signal,
-      compaction: deps.compaction,
-      recordEvent: invocation.recordEvent,
-    }),
-    tools,
-  }
-}
-
-async function sendPrompt(
-  provider: Provider,
-  prompt: PromptInput,
-  signal: AbortSignal | undefined,
-): Promise<PromptResult> {
-  let emittedText = ""
-  try {
-    const request = buildRequest(prompt)
-    const forwardText = request.onText
-    request.onText =
-      forwardText === undefined
-        ? undefined
-        : (delta: string) => {
-            if (isCancelled(signal)) return
-            emittedText += delta
-            forwardText(delta)
-          }
-    const forwardToolCallDelta = request.onToolCallDelta
-    request.onToolCallDelta =
-      forwardToolCallDelta === undefined
-        ? undefined
-        : (delta: ToolCallDelta) => {
-            if (isCancelled(signal)) return
-            forwardToolCallDelta(delta)
-          }
-    const response = await waitForProvider(() => provider.call(request), signal)
-    return isCancelled(signal)
-      ? { kind: "cancelled", text: emittedText }
-      : { kind: "completed", response }
-  } catch (err) {
-    if (isProviderCancelled(err, signal)) return { kind: "cancelled", text: emittedText }
-    return { kind: "failed", error: errorMessage(err) }
-  }
-}
-
-async function executeTools(calls: ToolCall[], tools: Tool[], ctx: ToolContext): Promise<ToolRun> {
-  const results: ToolResult[] = []
-
-  for (const call of calls) {
-    if (isCancelled(ctx.signal)) return { kind: "cancelled", results }
-    await ctx.recordEvent?.("tool.started", {
-      call,
-      display: pendingDisplayForToolCall(call, tools),
-    })
-    results.push(await executeToolCall(call, tools, ctx))
-    const result = results[results.length - 1]
-    if (result === undefined) continue
-    if (result.ok) {
-      await ctx.recordEvent?.("tool.completed", {
-        call: result.call,
-        display: result.display,
-        result: result.value,
-      })
-    } else {
-      await ctx.recordEvent?.("tool.failed", {
-        call: result.call,
-        display: result.display,
-        error: result.error,
-      })
-    }
-  }
-
-  return isCancelled(ctx.signal) ? { kind: "cancelled", results } : { kind: "completed", results }
-}
-
-function isCancelled(signal: AbortSignal | undefined): boolean {
-  return signal?.aborted === true
-}
-
-function waitForProvider<T>(call: () => Promise<T>, signal: AbortSignal | undefined): Promise<T> {
-  if (signal === undefined) return call()
-  if (signal.aborted) return Promise.reject(new DOMException("Aborted", "AbortError"))
-
-  return new Promise<T>((resolve, reject) => {
-    const onAbort = () => reject(new DOMException("Aborted", "AbortError"))
-    signal.addEventListener("abort", onAbort, { once: true })
-    call().then(
-      (value) => {
-        signal.removeEventListener("abort", onAbort)
-        resolve(value)
-      },
-      (err: unknown) => {
-        signal.removeEventListener("abort", onAbort)
-        reject(err)
-      },
-    )
-  })
-}
-
-function isProviderCancelled(err: unknown, signal: AbortSignal | undefined): boolean {
-  return signal?.aborted === true || (err instanceof DOMException && err.name === "AbortError")
-}
-
-function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err)
 }

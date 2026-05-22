@@ -1,5 +1,13 @@
+// tools.ts
+// The tool contract every app-provided tool implements (name + Zod schema +
+// async execute) and the runtime that invokes it. executeToolCall validates
+// args, runs the tool, truncates output, and wraps the outcome in a
+// discriminated ToolResult the loop branches on. No display / naming concerns
+// live here — those are the UI's job; the kernel returns raw facts.
+
 import type { ZodTypeAny } from "zod"
 import type { RecordEvent } from "./events.js"
+import type { SessionTaskServices, StartedTask } from "./tasks.js"
 
 export interface ToolCall {
   id: string
@@ -11,40 +19,25 @@ export interface ToolContext {
   sessionId: string
   recordEvent?: RecordEvent
   signal?: AbortSignal
-}
-
-export interface ToolDisplay<Args = unknown> {
-  pending: string
-  completed: string
-  failed?: string
-  target?(args: Args): string
-  summarize?(output: string, args: Args): string
-  summarizeError?(error: string, args: Args): string
-}
-
-export interface ToolDisplaySnapshot {
-  pending: string
-  completed: string
-  failed: string
-  target?: string
-  summary?: string
+  taskServices?: SessionTaskServices
 }
 
 export type ToolExecuteResult =
   | { kind: "ok"; output: string; summary?: string }
   | { kind: "error"; message: string; summary?: string }
+  | { kind: "started"; task: StartedTask; summary?: string }
 
 export interface Tool<Args = unknown> {
   name: string
   description: string
   schema: ZodTypeAny
-  display?: ToolDisplay<Args>
   execute(args: Args, ctx: ToolContext): Promise<ToolExecuteResult>
 }
 
 export type ToolResult =
-  | { ok: true; call: ToolCall; display: ToolDisplaySnapshot; value: string }
-  | { ok: false; call: ToolCall; display: ToolDisplaySnapshot; error: string }
+  | { kind: "ok"; call: ToolCall; value: string; summary?: string }
+  | { kind: "error"; call: ToolCall; error: string; summary?: string }
+  | { kind: "started"; call: ToolCall; task: StartedTask; summary?: string }
 
 const MAX_TOOL_OUTPUT_BYTES = 16 * 1024
 
@@ -69,12 +62,7 @@ export async function executeToolCall(
 ): Promise<ToolResult> {
   const tool = tools.find((t) => t.name === call.name)
   if (tool === undefined) {
-    return {
-      ok: false,
-      call,
-      display: fallbackDisplay(call),
-      error: `tool not found: ${call.name}`,
-    }
+    return { kind: "error", call, error: `tool not found: ${call.name}` }
   }
   const parsed = tool.schema.safeParse(call.args)
   if (!parsed.success) {
@@ -85,9 +73,8 @@ export async function executeToolCall(
       })
       .join("; ")
     return {
-      ok: false,
+      kind: "error",
       call,
-      display: fallbackDisplay(call),
       error: `invalid args for ${call.name}: ${message}`,
     }
   }
@@ -95,27 +82,15 @@ export async function executeToolCall(
     const result = await tool.execute(parsed.data, ctx)
     if (result.kind === "ok") {
       const value = truncateOutput(result.output)
-      return {
-        ok: true,
-        call,
-        display: completedDisplay(tool, parsed.data, value, result.summary),
-        value,
-      }
+      return { kind: "ok", call, value, summary: result.summary }
     }
-    return {
-      ok: false,
-      call,
-      display: failedDisplay(tool, parsed.data, result.message, result.summary),
-      error: result.message,
+    if (result.kind === "started") {
+      return { kind: "started", call, task: result.task, summary: result.summary }
     }
+    return { kind: "error", call, error: result.message, summary: result.summary }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    return {
-      ok: false,
-      call,
-      display: failedDisplay(tool, parsed.data, message),
-      error: `tool ${call.name} threw: ${message}`,
-    }
+    return { kind: "error", call, error: `tool ${call.name} threw: ${message}` }
   }
 }
 
@@ -130,79 +105,4 @@ export async function executeToolCalls(
     results.push(await executeToolCall(call, tools, ctx))
   }
   return results
-}
-
-export function pendingDisplayForToolCall(call: ToolCall, tools: Tool[]): ToolDisplaySnapshot {
-  const tool = tools.find((candidate) => candidate.name === call.name)
-  if (tool === undefined) return fallbackDisplay(call)
-  const parsed = tool.schema.safeParse(call.args)
-  if (!parsed.success) return fallbackDisplay(call)
-  return baseDisplay(tool, parsed.data)
-}
-
-function completedDisplay<Args>(
-  tool: Tool<Args>,
-  args: Args,
-  output: string,
-  explicitSummary: string | undefined,
-): ToolDisplaySnapshot {
-  const display = baseDisplay(tool, args)
-  const summary = explicitSummary ?? tool.display?.summarize?.(output, args)
-  return summary === undefined ? display : { ...display, summary }
-}
-
-function failedDisplay<Args>(
-  tool: Tool<Args>,
-  args: Args,
-  error: string,
-  explicitSummary?: string,
-): ToolDisplaySnapshot {
-  const display = baseDisplay(tool, args)
-  const summary = explicitSummary ?? tool.display?.summarizeError?.(error, args)
-  return summary === undefined ? display : { ...display, summary }
-}
-
-function baseDisplay<Args>(tool: Tool<Args>, args: Args): ToolDisplaySnapshot {
-  const { pending, completed, failed } = baseDisplayWithoutTarget(tool)
-  const target = safeDisplayTarget(tool, args)
-  return target === undefined
-    ? { completed, failed, pending }
-    : { completed, failed, pending, target }
-}
-
-function baseDisplayWithoutTarget(tool: Tool): ToolDisplaySnapshot {
-  return {
-    completed: tool.display?.completed ?? `${tool.name} ok`,
-    failed: tool.display?.failed ?? `${tool.name} failed`,
-    pending: tool.display?.pending ?? tool.name,
-  }
-}
-
-function safeDisplayTarget<Args>(tool: Tool<Args>, args: Args): string | undefined {
-  try {
-    const target = tool.display?.target?.(args).trim()
-    return target === undefined || target.length === 0 ? undefined : target
-  } catch {
-    return undefined
-  }
-}
-
-function fallbackDisplay(call: ToolCall): ToolDisplaySnapshot {
-  return {
-    ...baseFallbackDisplay(call.name),
-    target: argsPreview(call.args),
-  }
-}
-
-function baseFallbackDisplay(name: string): ToolDisplaySnapshot {
-  return {
-    completed: `${name} ok`,
-    failed: `${name} failed`,
-    pending: name,
-  }
-}
-
-function argsPreview(args: unknown): string {
-  const preview = JSON.stringify(args) ?? ""
-  return preview.length > 180 ? `${preview.slice(0, 177)}...` : preview
 }

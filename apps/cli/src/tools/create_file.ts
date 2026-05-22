@@ -17,12 +17,6 @@ export const createFileTool: Tool<CreateFileArgs> = {
   description:
     "Create a new UTF-8 text file. Fails if the file already exists. Use edit_file for existing files.",
   schema: createFileArgs,
-  display: {
-    pending: "creating",
-    completed: "created",
-    failed: "could not create",
-    target: (args) => args.path,
-  },
   async execute(args, _ctx: ToolContext): Promise<ToolExecuteResult> {
     const target = path.resolve(process.cwd(), args.path)
     try {

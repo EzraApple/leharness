@@ -1,3 +1,9 @@
+// models.ts
+// Model metadata the CLI / TUI need to render picker UIs and the harness
+// needs to default reasoning effort. ModelSpec captures id, friendly label,
+// provider, and reasoning capability; BUILTIN_MODELS is the static list the
+// /model slash command shows.
+
 export type ReasoningEffort = "off" | "high" | "max"
 
 export interface ModelSpec {

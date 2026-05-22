@@ -1,13 +1,21 @@
-import type { Event, ToolCall, ToolDisplaySnapshot } from "@leharness/harness"
+import type { Event, TaskKind, ToolCall } from "@leharness/harness"
+import {
+  completedSnapshotForCall,
+  failedSnapshotForCall,
+  pendingSnapshotForCall,
+  snapshotForTaskKind,
+  type ToolDisplaySnapshot,
+} from "../display/tools.js"
 import { collapseSkillLoadHints } from "../utils/display.js"
 import { finishReason, summarize } from "../utils/format.js"
-import type { Cell, ReadBatch, ToolStatus, TranscriptState } from "./types.js"
+import type { ActiveTask, Cell, ReadBatch, ToolStatus, TranscriptState } from "./types.js"
 
 type CellInput = Omit<Cell, "id">
 
 export function initialTranscript(): TranscriptState {
   return {
     activeAssistantIndex: undefined,
+    activeTasks: new Map(),
     cells: [],
     nextCellId: 0,
     nextReadBatchId: 0,
@@ -74,6 +82,7 @@ function updateToolInline(state: TranscriptState, index: number, update: Partial
 function cloneTranscript(state: TranscriptState): TranscriptState {
   return {
     activeAssistantIndex: state.activeAssistantIndex,
+    activeTasks: new Map(state.activeTasks),
     cells: state.cells.map((cell) => ({ ...cell })),
     nextCellId: state.nextCellId,
     nextReadBatchId: state.nextReadBatchId,
@@ -146,6 +155,9 @@ export function reduceEvent(state: TranscriptState, event: Event): TranscriptSta
       next.activeAssistantIndex = undefined
       pushCell(next, { kind: "user", text: collapseSkillLoadHints(String(event.text ?? "")) })
       break
+    case "invocation.auto":
+      next.activeAssistantIndex = undefined
+      break
     case "model.completed":
     case "model.cancelled": {
       commitAssistant(next, event)
@@ -156,11 +168,12 @@ export function reduceEvent(state: TranscriptState, event: Event): TranscriptSta
       const call = readToolCall(event.call)
       if (call === undefined) break
       if (startReadBatchTool(next, call)) break
+      const display = pendingSnapshotForCall(call)
       const existingIndex = next.toolCellById.get(call.id)
       if (existingIndex !== undefined && next.cells[existingIndex] !== undefined) {
         updateToolInline(next, existingIndex, {
           detail: undefined,
-          display: readDisplay(event.display),
+          display,
           expanded: false,
           kind: "tool",
           outcome: undefined,
@@ -171,7 +184,7 @@ export function reduceEvent(state: TranscriptState, event: Event): TranscriptSta
         break
       }
       const index = appendCellInline(next, {
-        display: readDisplay(event.display),
+        display,
         expanded: false,
         kind: "tool",
         status: "pending",
@@ -208,8 +221,126 @@ export function reduceEvent(state: TranscriptState, event: Event): TranscriptSta
         })
       }
       break
+    case "task.started":
+      handleTaskStarted(next, event)
+      break
+    case "task.completed":
+      handleTaskTerminal(next, event, "completed")
+      break
+    case "task.failed":
+      handleTaskTerminal(next, event, "failed")
+      break
+    case "task.cancelled":
+      handleTaskTerminal(next, event, "cancelled")
+      break
   }
   return next
+}
+
+function handleTaskStarted(state: TranscriptState, event: Event): void {
+  const task = readTaskRecord(event.task)
+  if (task === undefined) return
+  const summary = typeof event.summary === "string" ? event.summary : undefined
+  const display = snapshotForTaskKind(task.kind as TaskKind, task.payload, summary)
+  const command = task.payload?.command ?? ""
+  const active: ActiveTask = {
+    id: task.id,
+    kind: task.kind,
+    command,
+    startedAt: task.startedAt ?? new Date().toISOString(),
+    display,
+  }
+  state.activeTasks.set(task.id, active)
+
+  // Prefer to upgrade the existing tool.started cell in place so the inline
+  // pending spinner stops; only append a fresh cell when there's no matching
+  // foreground cell (e.g. when replaying events on resume).
+  const callId = typeof event.callId === "string" ? event.callId : undefined
+  const existingIndex = callId === undefined ? undefined : state.toolCellById.get(callId)
+  const update = {
+    background: { phase: "started" as const, taskId: task.id },
+    detail: undefined,
+    display,
+    expanded: false,
+    kind: "tool" as const,
+    outcome: undefined,
+    status: undefined,
+    text: "",
+    title: task.kind,
+  }
+  if (existingIndex !== undefined && state.cells[existingIndex] !== undefined) {
+    updateToolInline(state, existingIndex, update)
+    if (callId !== undefined) state.toolCellById.delete(callId)
+    return
+  }
+  pushCell(state, update)
+}
+
+function handleTaskTerminal(
+  state: TranscriptState,
+  event: Event,
+  phase: "completed" | "failed" | "cancelled",
+): void {
+  const taskId = typeof event.taskId === "string" ? event.taskId : undefined
+  if (taskId === undefined) return
+  const active = state.activeTasks.get(taskId)
+  state.activeTasks.delete(taskId)
+  const summary = typeof event.summary === "string" ? event.summary : undefined
+  const display =
+    active?.display ??
+    snapshotForTaskKind((active?.kind ?? "shell") as TaskKind, undefined, summary)
+  const text =
+    phase === "cancelled"
+      ? `cancelled (${typeof event.reason === "string" ? event.reason.replace("_", " ") : "user"})`
+      : (summary ?? (phase === "completed" ? "completed" : "failed"))
+  const detail = phase === "failed" || phase === "cancelled" ? readTerminalDetail(event) : undefined
+  const outcome = phase === "completed" ? "ok" : phase === "failed" ? "failed" : "cancelled"
+  const status: ToolStatus = phase === "failed" ? "failed" : "completed"
+  pushCell(state, {
+    background: {
+      phase,
+      taskId,
+      reason:
+        phase === "cancelled" && typeof event.reason === "string"
+          ? event.reason === "process_exited"
+            ? "process_exited"
+            : "user"
+          : undefined,
+    },
+    detail,
+    display: summary === undefined ? display : { ...display, summary },
+    kind: status === "failed" ? "error" : "tool",
+    outcome,
+    status,
+    text,
+    title: active?.kind ?? "task",
+  })
+}
+
+function readTaskRecord(value: unknown):
+  | {
+      id: string
+      kind: string
+      payload: { command?: string } | undefined
+      startedAt: string | undefined
+    }
+  | undefined {
+  if (typeof value !== "object" || value === null) return undefined
+  const record = value as Record<string, unknown>
+  if (typeof record.id !== "string" || typeof record.kind !== "string") return undefined
+  const payload =
+    typeof record.payload === "object" && record.payload !== null
+      ? (record.payload as { command?: string })
+      : undefined
+  const startedAt = typeof record.startedAt === "string" ? record.startedAt : undefined
+  return { id: record.id, kind: record.kind, payload, startedAt }
+}
+
+function readTerminalDetail(event: Event): string | undefined {
+  const error = typeof event.error === "string" ? event.error.trim() : ""
+  if (error.length > 0) return error
+  const result = typeof event.result === "string" ? event.result.trim() : ""
+  return result.length > 0 ? result : undefined
 }
 
 function commitAssistant(state: TranscriptState, event: Event): void {
@@ -225,7 +356,13 @@ function commitAssistant(state: TranscriptState, event: Event): void {
 function completeTool(state: TranscriptState, event: Event, status: ToolStatus): void {
   const call = readToolCall(event.call)
   const output = status === "completed" ? String(event.result ?? "") : String(event.error ?? "")
-  const display = readDisplay(event.display)
+  const summary = typeof event.summary === "string" ? event.summary : undefined
+  const display =
+    call === undefined
+      ? undefined
+      : status === "completed"
+        ? completedSnapshotForCall(call, output, summary)
+        : failedSnapshotForCall(call, output, summary)
   if (call !== undefined && completeReadBatchTool(state, call, display, output, status)) return
   const text = toolCellText(call, display, output, status)
   const detail = toolCellDetail(call, output, status)
@@ -458,25 +595,6 @@ function readToolCalls(value: unknown): ToolCall[] {
 
 function readToolCall(value: unknown): ToolCall | undefined {
   return isToolCall(value) ? value : undefined
-}
-
-function readDisplay(value: unknown): ToolDisplaySnapshot | undefined {
-  if (typeof value !== "object" || value === null) return undefined
-  const candidate = value as Record<string, unknown>
-  if (
-    typeof candidate.pending !== "string" ||
-    typeof candidate.completed !== "string" ||
-    typeof candidate.failed !== "string"
-  ) {
-    return undefined
-  }
-  return {
-    completed: candidate.completed,
-    failed: candidate.failed,
-    pending: candidate.pending,
-    summary: typeof candidate.summary === "string" ? candidate.summary : undefined,
-    target: typeof candidate.target === "string" ? candidate.target : undefined,
-  }
 }
 
 function isToolCall(value: unknown): value is ToolCall {

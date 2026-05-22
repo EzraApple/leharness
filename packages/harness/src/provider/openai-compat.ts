@@ -1,3 +1,10 @@
+// openai-compat.ts
+// Shared adapter for any provider that speaks the OpenAI chat-completions
+// API shape (OpenAI itself, Ollama via its /v1 endpoint, DeepSeek). Owns the
+// HarnessMessage → openai request translation, streaming response parsing,
+// and ProviderError mapping. Per-provider files (openai.ts, ollama.ts,
+// deepseek.ts) extend this with their own auth / base-URL config.
+
 import OpenAI from "openai"
 import type { ToolCall } from "../tools.js"
 import {

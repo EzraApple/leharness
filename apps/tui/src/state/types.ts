@@ -1,9 +1,18 @@
-import type { ToolDisplaySnapshot } from "@leharness/harness"
+import type { ToolDisplaySnapshot } from "../display/tools.js"
 
 type CellKind = "system" | "user" | "assistant" | "tool" | "error"
 export type ToolStatus = "pending" | "completed" | "failed"
 
+type BackgroundPhase = "started" | "completed" | "failed" | "cancelled"
+
+interface BackgroundMarker {
+  phase: BackgroundPhase
+  taskId: string
+  reason?: "user" | "process_exited"
+}
+
 export interface Cell {
+  background?: BackgroundMarker
   detail?: string
   id: string
   expanded?: boolean
@@ -15,6 +24,14 @@ export interface Cell {
   display?: ToolDisplaySnapshot
 }
 
+export interface ActiveTask {
+  id: string
+  kind: string
+  command: string
+  startedAt: string
+  display: ToolDisplaySnapshot
+}
+
 export interface TranscriptState {
   nextCellId: number
   cells: Cell[]
@@ -23,6 +40,7 @@ export interface TranscriptState {
   activeAssistantIndex?: number
   readBatchByCallId: Map<string, string>
   readBatches: Map<string, ReadBatch>
+  activeTasks: Map<string, ActiveTask>
 }
 
 export interface ReadBatch {

@@ -1,3 +1,9 @@
+// providers.ts
+// Provider factory dispatch: takes a provider name ("openai" | "ollama" |
+// "deepseek") and returns the corresponding Provider implementation. Pure
+// routing — each provider's configuration lives in its own file under
+// ./provider/.
+
 import { DeepSeekProvider } from "./provider/deepseek.js"
 import type { Provider } from "./provider/index.js"
 import { OllamaProvider } from "./provider/ollama.js"

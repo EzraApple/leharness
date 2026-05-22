@@ -6,16 +6,19 @@ import {
   type Event,
   findModel,
   type HarnessDeps,
+  hasPendingBackgroundUpdates,
   type ModelSpec,
   modelSupportsReasoning,
   qualifiedModelId,
   type ReasoningEffort,
   type RuntimeSettings,
   type Skill,
+  subscribeToBackgroundUpdates,
   updateUserSettings,
 } from "@leharness/harness"
 import { Box, Text, useApp, useInput, useStdout } from "ink"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { ActiveTasks } from "./components/active-tasks.js"
 import { Footer, Prompt } from "./components/prompt.js"
 import { QueuedMessages } from "./components/queued-messages.js"
 import { type MenuItem, SlashMenu } from "./components/slash-menu.js"
@@ -51,7 +54,7 @@ export function TuiApp({
   deps: HarnessDeps
   priorEvents: Event[]
   runPrompt: (
-    text: string,
+    text: string | undefined,
     deps: HarnessDeps,
     options: {
       onEvent: (event: Event) => void
@@ -152,6 +155,24 @@ export function TuiApp({
   useEffect(() => {
     return () => abortRef.current?.abort()
   }, [])
+
+  const autoInvocationScheduledRef = useRef(false)
+  const startInvocationRef = useRef<(text: string | undefined) => Promise<void>>(async () => {})
+
+  useEffect(() => {
+    if (deps.tasks === false) return
+    const scheduleAutoInvocation = () => {
+      if (autoInvocationScheduledRef.current) return
+      autoInvocationScheduledRef.current = true
+      setTimeout(() => {
+        autoInvocationScheduledRef.current = false
+        if (runningRef.current) return
+        if (!hasPendingBackgroundUpdates(sessionId)) return
+        void startInvocationRef.current(undefined)
+      }, 50)
+    }
+    return subscribeToBackgroundUpdates(sessionId, scheduleAutoInvocation)
+  }, [deps.tasks, sessionId])
 
   const refreshSkills = useCallback(() => {
     if (deps.skills === false) {
@@ -308,17 +329,17 @@ export function TuiApp({
     return true
   }
 
-  async function startInvocation(text: string): Promise<void> {
+  async function startInvocation(text: string | undefined): Promise<void> {
     if (runningRef.current) return
-    const invocationText = prepareInvocationText(text)
-    if (invocationText === undefined) {
+    const invocationText = text === undefined ? undefined : prepareInvocationText(text)
+    if (text !== undefined && invocationText === undefined) {
       void startNextQueuedMessage()
       return
     }
 
     runningRef.current = true
     setRunning(true)
-    setStatus("running")
+    setStatus(invocationText === undefined ? "auto-react" : "running")
     const controller = new AbortController()
     const invocationStartedAt = Date.now()
     const invocationId = invocationIdRef.current + 1
@@ -365,8 +386,20 @@ export function TuiApp({
       setStatus("idle")
       refreshSkills()
       if (shouldDrain) void startNextQueuedMessage()
+      // If background messages arrived during the loop tail without
+      // tripping the queue listener (or arrived just after this finally
+      // started), drain them in a fresh auto-invocation.
+      if (deps.tasks !== false && hasPendingBackgroundUpdates(sessionId) && !runningRef.current) {
+        setTimeout(() => {
+          if (!runningRef.current && hasPendingBackgroundUpdates(sessionId)) {
+            void startInvocation(undefined)
+          }
+        }, 50)
+      }
     }
   }
+
+  startInvocationRef.current = startInvocation
 
   useInput(
     (rawInput, key) => {
@@ -684,6 +717,7 @@ export function TuiApp({
         width={columns}
       />
       <QueuedMessages messages={queuedMessages} width={columns} />
+      <ActiveTasks tasks={transcript.activeTasks} width={columns} />
       <Prompt
         input={input}
         inputVersion={inputVersion}

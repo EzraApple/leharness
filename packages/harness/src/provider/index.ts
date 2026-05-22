@@ -1,3 +1,9 @@
+// provider/index.ts
+// The Provider contract every model backend implements: a single async
+// `call(request)` that takes a ProviderRequest (system + messages + tools +
+// streaming callbacks) and returns a ProviderResponse. Concrete impls live
+// in sibling files (openai.ts, ollama.ts, deepseek.ts, openai-compat.ts).
+
 import type { ReasoningEffort } from "../models.js"
 import type { ToolCall } from "../tools.js"
 

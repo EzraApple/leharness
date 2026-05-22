@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url"
 import {
   buildProvider,
   defaultModelFor,
+  enableShellRuntime,
+  getOrCreateTaskServices,
   type HarnessDeps,
   loadEvents,
   loadUserSettings,
@@ -87,6 +89,7 @@ export async function main(argv: string[]): Promise<number> {
     reasoningEffort: runtime.reasoningEffort,
   }
   const sessionId = args.sessionId ?? ulid()
+  enableShellRuntime(getOrCreateTaskServices(sessionId))
 
   if (args.mode === "one_shot") {
     if (args.prompt === undefined) {

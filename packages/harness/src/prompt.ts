@@ -1,3 +1,10 @@
+// prompt.ts
+// Event-log → provider-message projection plus the request shape every
+// Provider implementation consumes. eventToMessage is the per-event mapping
+// (user / assistant / tool / synthetic-user injection for task.* completions
+// the model needs to react to). buildInput / buildRequest assemble the
+// PromptInput the model call layer hands to the provider.
+
 import { type ZodTypeAny, z } from "zod"
 import type { Event, RecordEvent } from "./events.js"
 import type { ReasoningEffort } from "./models.js"
@@ -122,9 +129,52 @@ function eventToMessage(event: Event): HarnessMessage | null {
       const call = event.call as ToolCall
       return { role: "tool", toolCallId: call.id, content: `error: ${event.error as string}` }
     }
+    case "task.started": {
+      const callId = typeof event.callId === "string" ? event.callId : undefined
+      if (callId === undefined) return null
+      const taskId = readTaskIdField(event)
+      const payload = JSON.stringify({
+        task_id: taskId,
+        status: "started",
+        note: "background task is running; call read_task or wait_task to follow up",
+      })
+      return { role: "tool", toolCallId: callId, content: payload }
+    }
+    case "task.completed":
+      return { role: "user", content: backgroundUpdateMessage(event, "completed") }
+    case "task.failed":
+      return { role: "user", content: backgroundUpdateMessage(event, "failed") }
+    case "task.cancelled":
+      return { role: "user", content: backgroundUpdateMessage(event, "cancelled") }
     default:
       return null
   }
+}
+
+function readTaskIdField(event: Event): string {
+  if (typeof event.taskId === "string") return event.taskId
+  const task = event.task as { id?: unknown } | undefined
+  return typeof task?.id === "string" ? task.id : "unknown"
+}
+
+function backgroundUpdateMessage(
+  event: Event,
+  phase: "completed" | "failed" | "cancelled",
+): string {
+  const taskId = readTaskIdField(event)
+  const summary = typeof event.summary === "string" ? ` · ${event.summary}` : ""
+  const body =
+    phase === "failed"
+      ? typeof event.error === "string"
+        ? event.error
+        : ""
+      : phase === "completed"
+        ? typeof event.result === "string"
+          ? event.result
+          : ""
+        : `reason: ${typeof event.reason === "string" ? event.reason : "user"}`
+  const header = `[background task ${taskId}] ${phase}${summary}`
+  return body.length > 0 ? `${header}\n${body}` : header
 }
 
 function toHarnessTool(tool: Tool): HarnessTool {

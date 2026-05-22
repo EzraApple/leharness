@@ -18,12 +18,6 @@ export const editFileTool: Tool<EditFileArgs> = {
   description:
     "Edit a UTF-8 text file by replacing one exact old_string with new_string. The old_string must appear exactly once; include enough surrounding context to make it unique.",
   schema: editFileArgs,
-  display: {
-    pending: "editing",
-    completed: "edited",
-    failed: "could not edit",
-    target: (args) => args.path,
-  },
   async execute(args, _ctx: ToolContext): Promise<ToolExecuteResult> {
     if (args.old_string.length === 0) {
       return { kind: "error", message: "edit_file failed: old_string must not be empty" }
