@@ -1,3 +1,10 @@
+// tools.ts
+// The tool contract every app-provided tool implements (name + Zod schema +
+// async execute) and the runtime that invokes it. executeToolCall validates
+// args, runs the tool, truncates output, and wraps the outcome in a
+// discriminated ToolResult the loop branches on. No display / naming concerns
+// live here — those are the UI's job; the kernel returns raw facts.
+
 import type { ZodTypeAny } from "zod"
 import type { RecordEvent } from "./events.js"
 import type { SessionTaskServices, StartedTask } from "./tasks.js"

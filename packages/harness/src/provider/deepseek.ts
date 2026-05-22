@@ -1,3 +1,10 @@
+// deepseek.ts
+// DeepSeek Provider: wraps OpenAICompatProvider against
+// https://api.deepseek.com (LEHARNESS_DEEPSEEK_BASE_URL overrides). Adds
+// DeepSeek-specific reasoning-effort handling — when effort is "high" /
+// "max" the API expects a different model name suffix, so the request is
+// rewritten before being sent.
+
 import type { ReasoningEffort } from "../models.js"
 import type { ProviderRequest } from "./index.js"
 import { ProviderError } from "./index.js"

@@ -1,3 +1,9 @@
+// settings.ts
+// User-level configuration read from / written to
+// <LEHARNESS_HOME>/config.json. Persists which provider + model + reasoning
+// effort the user picked, so the next CLI run resumes the same runtime
+// without flags. Atomic write (tmp + rename) to survive concurrent runs.
+
 import { promises as fs } from "node:fs"
 import path from "node:path"
 import { resolveLeharnessHome } from "./events.js"

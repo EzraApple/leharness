@@ -1,3 +1,8 @@
+// openai.ts
+// OpenAI-cloud Provider: thin wrapper over OpenAICompatProvider configured
+// with the api.openai.com base URL and OPENAI_API_KEY / OPENAI_ORG_ID env
+// reads. Reasoning effort handling is delegated to openai-compat.
+
 import { ProviderError } from "./index.js"
 import { OpenAICompatProvider } from "./openai-compat.js"
 

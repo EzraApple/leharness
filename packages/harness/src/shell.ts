@@ -1,3 +1,20 @@
+// shell.ts
+// The shell archetype of a background task. Apps decide whether to expose a
+// `bash` (or similar) tool to the model; this file owns the actual process
+// management.
+//
+//   ShellExecutor          — TaskExecutor impl; adopts a running child,
+//                            buffers stdout/stderr, sends task.* Messages
+//                            on exit/error, handles SIGTERM-then-SIGKILL
+//                            cancellation.
+//   enableShellRuntime     — one-call setup: create + register the executor
+//                            on a session's services.
+//   runShellInBackground   — what an app-side tool's execute() delegates to.
+//                            Spawns the child, races inline_ms, hands off to
+//                            the executor on timeout, returns inline output
+//                            otherwise. Errors clearly if the shell runtime
+//                            hasn't been enabled.
+
 import { type ChildProcess, spawn } from "node:child_process"
 import {
   type MessageQueue,

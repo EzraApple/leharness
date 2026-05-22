@@ -1,3 +1,10 @@
+// prompt.ts
+// Event-log → provider-message projection plus the request shape every
+// Provider implementation consumes. eventToMessage is the per-event mapping
+// (user / assistant / tool / synthetic-user injection for task.* completions
+// the model needs to react to). buildInput / buildRequest assemble the
+// PromptInput the model call layer hands to the provider.
+
 import { type ZodTypeAny, z } from "zod"
 import type { Event, RecordEvent } from "./events.js"
 import type { ReasoningEffort } from "./models.js"

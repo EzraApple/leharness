@@ -1,3 +1,10 @@
+// state.ts
+// Per-invocation mutable surface the loop carries through one runInvocation
+// call: the session id, the events array (loaded from disk + freshly
+// appended), and a closure that records new events. loadInvocationState
+// fans-out an onEvent observer so consumers (CLI / TUI) can react in real
+// time. endInvocation appends agent.finished and returns the final log.
+
 import {
   appendEvent,
   type Event,

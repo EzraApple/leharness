@@ -1,3 +1,10 @@
+// naive-truncate.ts
+// The simplest compaction strategy: when the prompt's char count exceeds
+// the budget, drop oldest non-system messages until it fits, optionally
+// preserving the most recent N turns. Lossy and basic on purpose — first
+// strategy to land so the seam is exercised; smarter approaches plug in
+// next to this file.
+
 import type { PromptInput } from "../prompt.js"
 import type { HarnessMessage, HarnessTool } from "../provider/index.js"
 

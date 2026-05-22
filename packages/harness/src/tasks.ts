@@ -1,3 +1,15 @@
+// tasks.ts
+// Everything background-work-related at the kernel level:
+//   - Task / TaskKind / TaskState / Message data shapes
+//   - MessageQueue (in-memory, per session) executors post completions to
+//   - TaskRegistry tracking active tasks + supporting wait_task / read_task
+//   - The TaskExecutor interface (ShellExecutor is one impl; SubagentExecutor
+//     and CompactionExecutor are reserved kinds for later)
+//   - Built-in wait_task / read_task / cancel_task tools
+//   - Per-session services accessor + lifecycle (getOrCreateTaskServices,
+//     disposeTaskServices) and a UI-facing subscription API
+//     (subscribeToBackgroundUpdates / hasPendingBackgroundUpdates).
+
 import { ulid } from "ulid"
 import { z } from "zod"
 import type { Tool, ToolContext, ToolExecuteResult } from "./tools.js"
