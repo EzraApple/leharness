@@ -86,8 +86,8 @@ jobs:
       - name: Lint
         run: pnpm lint
 
-  smoke:
-    name: Smoke
+  smoke-harness:
+    name: Smoke (harness)
     runs-on: ubuntu-latest
 
     steps:
@@ -108,5 +108,30 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Smoke
-        run: pnpm smoke
+      - name: Smoke (harness)
+        run: pnpm smoke:harness
+
+  smoke-apps:
+    name: Smoke (apps)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Smoke (apps)
+        run: pnpm smoke:apps
