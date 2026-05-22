@@ -58,14 +58,21 @@ export type Message =
       summary?: string
     }
 
+export type MessageListener = (message: Message) => void
+
 export class MessageQueue {
   private buffer: Message[] = []
-  private waiters: Array<() => void> = []
+  private listeners = new Set<MessageListener>()
 
   send(message: Message): void {
     this.buffer.push(message)
-    const waiter = this.waiters.shift()
-    if (waiter !== undefined) waiter()
+    for (const listener of this.listeners) {
+      try {
+        listener(message)
+      } catch {
+        // Listener throws are not the queue's problem.
+      }
+    }
   }
 
   drain(): Message[] {
@@ -76,6 +83,11 @@ export class MessageQueue {
 
   size(): number {
     return this.buffer.length
+  }
+
+  onMessage(listener: MessageListener): () => void {
+    this.listeners.add(listener)
+    return () => this.listeners.delete(listener)
   }
 }
 

@@ -148,6 +148,9 @@ export function reduceEvent(state: TranscriptState, event: Event): TranscriptSta
       next.activeAssistantIndex = undefined
       pushCell(next, { kind: "user", text: collapseSkillLoadHints(String(event.text ?? "")) })
       break
+    case "invocation.auto":
+      next.activeAssistantIndex = undefined
+      break
     case "model.completed":
     case "model.cancelled": {
       commitAssistant(next, event)
@@ -239,14 +242,29 @@ function handleTaskStarted(state: TranscriptState, event: Event): void {
     display,
   }
   state.activeTasks.set(task.id, active)
-  pushCell(state, {
-    background: { phase: "started", taskId: task.id },
+
+  // Prefer to upgrade the existing tool.started cell in place so the inline
+  // pending spinner stops; only append a fresh cell when there's no matching
+  // foreground cell (e.g. when replaying events on resume).
+  const callId = typeof event.callId === "string" ? event.callId : undefined
+  const existingIndex = callId === undefined ? undefined : state.toolCellById.get(callId)
+  const update = {
+    background: { phase: "started" as const, taskId: task.id },
+    detail: undefined,
     display,
-    kind: "tool",
-    status: "pending",
+    expanded: false,
+    kind: "tool" as const,
+    outcome: undefined,
+    status: undefined,
     text: "",
     title: task.kind,
-  })
+  }
+  if (existingIndex !== undefined && state.cells[existingIndex] !== undefined) {
+    updateToolInline(state, existingIndex, update)
+    if (callId !== undefined) state.toolCellById.delete(callId)
+    return
+  }
+  pushCell(state, update)
 }
 
 function handleTaskTerminal(

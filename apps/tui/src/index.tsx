@@ -37,7 +37,7 @@ export async function runTui(
 
 async function runPrompt(
   sessionId: string,
-  text: string,
+  text: string | undefined,
   deps: HarnessDeps,
   options: {
     onEvent: (event: Event) => void

@@ -68,7 +68,7 @@ interface PreparedPrompt {
 
 export async function runInvocation(
   sessionId: string,
-  userText: string,
+  userText: string | undefined,
   deps: HarnessDeps,
   options: RunOptions = {},
 ): Promise<Event[]> {
@@ -78,12 +78,20 @@ export async function runInvocation(
   const tasksEnabled = deps.tasks !== false
   const taskServices = tasksEnabled ? getOrCreateTaskServices(sessionId) : undefined
 
-  await invocation.recordEvent("invocation.received", {
-    text: userText,
-    provider: deps.provider.name,
-    model: deps.model,
-    reasoningEffort: deps.reasoningEffort,
-  })
+  if (userText !== undefined && userText.length > 0) {
+    await invocation.recordEvent("invocation.received", {
+      text: userText,
+      provider: deps.provider.name,
+      model: deps.model,
+      reasoningEffort: deps.reasoningEffort,
+    })
+  } else {
+    await invocation.recordEvent("invocation.auto", {
+      provider: deps.provider.name,
+      model: deps.model,
+      reasoningEffort: deps.reasoningEffort,
+    })
+  }
 
   if (taskServices !== undefined) {
     await drainTaskQueue(invocation, taskServices)
@@ -140,7 +148,7 @@ export async function runInvocation(
 
 async function preparePrompt(
   invocation: InvocationState,
-  userText: string,
+  userText: string | undefined,
   deps: HarnessDeps,
   options: RunOptions,
 ): Promise<PreparedPrompt> {
@@ -156,7 +164,7 @@ async function preparePrompt(
       const catalog = renderSkillCatalog(discoveredSkills, {
         budgetChars: skillConfig?.catalogBudgetChars,
         includePaths: skillConfig?.includePaths,
-        queryText: userText,
+        queryText: userText ?? "",
         recentSkillNames: recentLoadedSkillNames(invocation.events),
       })
       system = withSkillCatalog(baseSystem, catalog)

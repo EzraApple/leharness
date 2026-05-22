@@ -5,6 +5,7 @@ import {
   discoverSkills,
   type Event,
   findModel,
+  getOrCreateTaskServices,
   type HarnessDeps,
   type ModelSpec,
   modelSupportsReasoning,
@@ -52,7 +53,7 @@ export function TuiApp({
   deps: HarnessDeps
   priorEvents: Event[]
   runPrompt: (
-    text: string,
+    text: string | undefined,
     deps: HarnessDeps,
     options: {
       onEvent: (event: Event) => void
@@ -153,6 +154,25 @@ export function TuiApp({
   useEffect(() => {
     return () => abortRef.current?.abort()
   }, [])
+
+  const autoInvocationScheduledRef = useRef(false)
+  const startInvocationRef = useRef<(text: string | undefined) => Promise<void>>(async () => {})
+
+  useEffect(() => {
+    if (deps.tasks === false) return
+    const services = getOrCreateTaskServices(sessionId)
+    const scheduleAutoInvocation = () => {
+      if (autoInvocationScheduledRef.current) return
+      autoInvocationScheduledRef.current = true
+      setTimeout(() => {
+        autoInvocationScheduledRef.current = false
+        if (runningRef.current) return
+        if (services.queue.size() === 0) return
+        void startInvocationRef.current(undefined)
+      }, 50)
+    }
+    return services.queue.onMessage(scheduleAutoInvocation)
+  }, [deps.tasks, sessionId])
 
   const refreshSkills = useCallback(() => {
     if (deps.skills === false) {
@@ -309,17 +329,17 @@ export function TuiApp({
     return true
   }
 
-  async function startInvocation(text: string): Promise<void> {
+  async function startInvocation(text: string | undefined): Promise<void> {
     if (runningRef.current) return
-    const invocationText = prepareInvocationText(text)
-    if (invocationText === undefined) {
+    const invocationText = text === undefined ? undefined : prepareInvocationText(text)
+    if (text !== undefined && invocationText === undefined) {
       void startNextQueuedMessage()
       return
     }
 
     runningRef.current = true
     setRunning(true)
-    setStatus("running")
+    setStatus(invocationText === undefined ? "auto-react" : "running")
     const controller = new AbortController()
     const invocationStartedAt = Date.now()
     const invocationId = invocationIdRef.current + 1
@@ -366,8 +386,23 @@ export function TuiApp({
       setStatus("idle")
       refreshSkills()
       if (shouldDrain) void startNextQueuedMessage()
+      // If background messages arrived during the loop tail without
+      // tripping the queue listener (or arrived just after this finally
+      // started), drain them in a fresh auto-invocation.
+      if (deps.tasks !== false) {
+        const services = getOrCreateTaskServices(sessionId)
+        if (services.queue.size() > 0 && !runningRef.current) {
+          setTimeout(() => {
+            if (!runningRef.current && services.queue.size() > 0) {
+              void startInvocation(undefined)
+            }
+          }, 50)
+        }
+      }
     }
   }
+
+  startInvocationRef.current = startInvocation
 
   useInput(
     (rawInput, key) => {

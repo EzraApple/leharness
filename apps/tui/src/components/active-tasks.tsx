@@ -3,41 +3,37 @@ import { useEffect, useState } from "react"
 import stringWidth from "string-width"
 import type { ActiveTask } from "../state/types.js"
 
-const MAX_VISIBLE = 3
-
 export function ActiveTasks({ tasks, width }: { tasks: Map<string, ActiveTask>; width: number }) {
   const now = useTickingNow(tasks.size > 0)
   if (tasks.size === 0) return null
 
   const list = Array.from(tasks.values()).sort((a, b) => a.startedAt.localeCompare(b.startedAt))
-  const visible = list.slice(0, MAX_VISIBLE)
-  const hidden = list.length - visible.length
   const rowWidth = Math.max(24, width - 4)
-  const summary = `${list.length} background task${list.length === 1 ? "" : "s"}`
+  const line = formatLine(list, now, rowWidth)
 
   return (
-    <Box flexDirection="column" marginTop={1}>
-      <Text color="yellow">{padToWidth(`⇣ ${summary}`, rowWidth)}</Text>
-      {visible.map((task) => (
-        <Text color="gray" key={task.id}>
-          {padToWidth(formatTaskRow(task, now, rowWidth), rowWidth)}
-        </Text>
-      ))}
-      {hidden > 0 ? <Text color="gray">{padToWidth(`  + ${hidden} more`, rowWidth)}</Text> : null}
+    <Box marginTop={1}>
+      <Text color="yellow">{padToWidth(line, rowWidth)}</Text>
     </Box>
   )
 }
 
-function formatTaskRow(task: ActiveTask, now: number, width: number): string {
-  const elapsedSeconds = Math.max(0, Math.floor((now - new Date(task.startedAt).getTime()) / 1000))
-  const elapsed = formatElapsed(elapsedSeconds)
-  const command = task.command.length > 0 ? task.command : task.kind
-  const prefix = `  ${task.kind} `
-  const suffix = ` (${elapsed})`
-  const room = Math.max(8, width - stringWidth(prefix) - stringWidth(suffix))
-  const trimmedCommand =
-    stringWidth(command) > room ? `${trimToWidth(command, room - 1)}…` : command
-  return `${prefix}${trimmedCommand}${suffix}`
+function formatLine(tasks: ActiveTask[], now: number, width: number): string {
+  const first = tasks[0]
+  if (first === undefined) return ""
+  const elapsed = formatElapsed(elapsedSeconds(first, now))
+  const head = `⇣ ${tasks.length} bg · ${labelFor(first)} (${elapsed})`
+  if (tasks.length === 1) return trimToWidth(head, width)
+  return trimToWidth(`${head} + ${tasks.length - 1} more`, width)
+}
+
+function labelFor(task: ActiveTask): string {
+  const body = task.command.length > 0 ? task.command : task.kind
+  return body.replace(/\s+/g, " ").trim()
+}
+
+function elapsedSeconds(task: ActiveTask, now: number): number {
+  return Math.max(0, Math.floor((now - new Date(task.startedAt).getTime()) / 1000))
 }
 
 function formatElapsed(totalSeconds: number): string {
@@ -58,12 +54,14 @@ function useTickingNow(active: boolean): number {
 }
 
 function trimToWidth(text: string, width: number): string {
+  if (stringWidth(text) <= width) return text
+  const target = Math.max(1, width - 1)
   let out = ""
   for (const char of text) {
-    if (stringWidth(`${out}${char}`) > width) break
+    if (stringWidth(`${out}${char}`) > target) break
     out += char
   }
-  return out
+  return `${out}…`
 }
 
 function padToWidth(text: string, width: number): string {
