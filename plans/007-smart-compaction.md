@@ -112,7 +112,7 @@ projection free.
 | ---- | -------- |
 | Strategy name | `pressure_gradient` (replaces `naive_truncate` as the default; naive stays exported for the smokes that exercise the floor). |
 | Budget basis | Char count (proxy for tokens). Default budget = `0.85 × modelContextWindowTokens × 4 chars/token`. App can override via `CompactionOptions.maxInputChars`. Char-count is the *decision* basis for compaction (cheap, predictable, no tokenizer deps). |
-| Indicator basis | Real tokens from the last `model.completed.usage.input_tokens` for the TUI's `"X / Y (Z%)"` footer. All providers (OpenAI / Anthropic / DeepSeek / Ollama) return per-call token usage in their responses; the harness's provider layer already normalizes these into the `usage` field. So compaction makes decisions on chars but the user sees real tokens. The two track each other; long-term we can calibrate the chars→tokens multiplier per-session from observed ratios. |
+| Indicator basis | Real tokens from the last `model.completed.usage.promptTokens` for the TUI footer indicator. The harness already normalizes provider-specific token-count fields (`prompt_tokens`, `input_tokens`, `prompt_eval_count`) into `{ promptTokens, completionTokens }` in `ProviderResponse.usage` (see `provider/openai-compat.ts`). The `model.completed` event already carries that payload; the TUI just needs to read it. Compaction makes decisions on char-count chars but the user sees real tokens. The two track each other; long-term we can calibrate the chars→tokens multiplier per-session from observed ratios. |
 | Watermarks (% of budget) | 50% drop old reasoning, 65% promote oversized inline tool results to artifacts, 75% drop old tool result bodies, 85% summarize one window, 95% summarize next, 100%+ hard truncate. **Cumulative — once crossed, the transformation applies.** |
 | Preserve-recent | Last K=2 turns (one turn = one user message + agent's response chain through to next user message) are exempt from drop/promote/summarize tiers; only hard truncate may touch them. |
 | Artifact promotion threshold | Inline tool results > 1KB get promoted when the 65% watermark is crossed. Reuses `writeArtifact` from plan 006. |
@@ -130,7 +130,9 @@ projection free.
 ## Watermarks in detail
 
 Pressure ratio measured once after the initial projection:
-`pressureRatio = projectedSizeChars / budget`.
+`pressureRatio = projectedSizeChars / budget`. Budget defaults to
+`0.85 × contextWindowTokensForModel(deps.model, deps.provider.name) ×
+4 chars/token` unless the app supplies `compaction.maxInputChars`.
 
 All transformations whose watermark `pressureRatio >= watermark` is met
 get applied, in order. Re-measurement only happens between
@@ -261,6 +263,13 @@ All envelope-versioned `v: 1`. The new event types fall through to the
 default no-op reducer in apps that haven't been taught about them, same
 as `artifact.created` did in plan 006.
 
+**Single-writer respected:** all three new event types are recorded
+through `invocation.recordEvent` from inside the compaction layer
+(which already runs inside the loop step). The compaction module
+receives `recordEvent` via `PromptInput.recordEvent` — the same channel
+the existing `compaction.completed` event already uses. No new writer
+seams added.
+
 ## Caching invariants
 
 The compounded-loss-prevention story rests on three properties:
@@ -319,24 +328,42 @@ export interface CompactionOptions {
   maxInputChars?: number
   preserveRecentTurns?: number       // renamed from preserveRecentMessages — turn-based is clearer
   summarizerModel?: string           // optional override; defaults to main model
-  watermarks?: Partial<Watermarks>   // override defaults
 }
+```
 
-export interface Watermarks {
-  dropOldReasoning: number      // default 0.50
-  promoteInlineResults: number  // default 0.65
-  dropOldToolBodies: number     // default 0.75
-  summarizeFirstWindow: number  // default 0.85
-  summarizeSecondWindow: number // default 0.95
-}
+Watermarks are **module-level constants** in `pressure-gradient.ts`, not
+config (same pattern as `AUTO_ARTIFACT_THRESHOLD_BYTES` in plan 006).
+No real consumer needs to tune them yet; expose later if a real tuning
+need shows up.
+
+```ts
+// packages/harness/src/compaction/pressure-gradient.ts
+const DROP_OLD_REASONING_WATERMARK = 0.50
+const PROMOTE_INLINE_RESULTS_WATERMARK = 0.65
+const DROP_OLD_TOOL_BODIES_WATERMARK = 0.75
+const SUMMARIZE_FIRST_WINDOW_WATERMARK = 0.85
+const SUMMARIZE_SECOND_WINDOW_WATERMARK = 0.95
 ```
 
 ```ts
-// packages/harness/src/models.ts — add context window lookup
-export function modelContextWindowTokens(model: string): number
-// Returns sensible defaults: "claude-*" → 200_000, "deepseek-*" → 128_000,
-// otherwise 32_000.
+// packages/harness/src/models.ts — context window joins existing ModelSpec
+export interface ModelSpec {
+  // existing fields...
+  contextWindowTokens?: number       // new, optional — defaults via helper
+}
+
+export function contextWindowTokensForModel(
+  modelId: string,
+  providerName?: string,
+): number {
+  return findModel(modelId, providerName)?.contextWindowTokens ?? 32_000
+}
 ```
+
+Matches existing pattern (`supportsReasoning` field → `modelSupportsReasoning`
+helper). Builtin specs in `BUILTIN_MODELS` get populated with their real
+windows (DeepSeek 1M, GPT-4o-mini 128k, Claude models 200k, Ollama
+locals as documented per-model).
 
 ## Files to modify or add
 
@@ -346,17 +373,21 @@ export function modelContextWindowTokens(model: string): number
 | `packages/harness/src/compaction/summarize.ts` *(new)* | Window selection, summarizer prompt + provider call, artifact stash, record `compaction.summary` / `compaction.summary.failed`. |
 | `packages/harness/src/compaction/cache.ts` *(new)* | Read `compaction.summary` events into a lookup; helper to find a covering summary for a candidate window. |
 | `packages/harness/src/compaction/index.ts` | Default `compact` dispatches to `pressureGradient`. Keep `naiveTruncate` exported for smokes that test the floor in isolation. |
-| `packages/harness/src/events.ts` | Add `compaction.summary`, `compaction.summary.failed`, `compaction.tool_promoted` event-type literals (existing events file uses string literals — no type-union enforcement, but adding them as documented constants where they're referenced). |
-| `packages/harness/src/prompt.ts` | Extend `CompactionOptions` (preserveRecentTurns, summarizerModel, watermarks); extend `eventToMessage` to consult the summary cache and emit synthetic summary messages; teach it to drop `reasoningText` per-event when flagged. |
-| `packages/harness/src/models.ts` | `modelContextWindowTokens(model: string): number` lookup. |
-| `packages/harness/src/core/prepare-prompt.ts` | When app didn't supply `maxInputChars`, compute default from `modelContextWindowTokens(deps.model)`. |
+| `packages/harness/src/prompt.ts` | Extend `CompactionOptions` (add `preserveRecentTurns`, `summarizerModel`; deprecate `preserveRecentMessages`); extend `eventToMessage` to consult the summary cache and emit synthetic summary messages; teach it to drop `reasoningText` per-event when flagged. |
+| `packages/harness/src/models.ts` | Add optional `contextWindowTokens` field to `ModelSpec`; add `contextWindowTokensForModel(id, provider)` helper (matches existing `modelSupportsReasoning` shape); populate the field on `BUILTIN_MODELS` entries. |
+| `packages/harness/src/core/prepare-prompt.ts` | When app didn't supply `compaction.maxInputChars`, compute default from `contextWindowTokensForModel(deps.model, deps.provider.name)` × 4 chars/token × 0.85. |
 | `apps/cli/src/cli.ts` | No change required — defaults flow through `prepare-prompt.ts`. |
 | `apps/tui/src/state/types.ts` | Add `compactionInProgress: boolean`, `lastCompactionGains?: { savedChars, summarizedCount }`, `contextUsage?: { used, budget }`. |
-| `apps/tui/src/state/transcript.ts` | Reduce `compaction.completed` → update `lastCompactionGains` + `contextUsage`; reduce `compaction.summary` (start) / `compaction.summary.failed` to toggle `compactionInProgress`. |
-| `apps/tui/src/components/footer.tsx` | Render `"[compacting...]"` when `compactionInProgress`; always render `"32k / 435k (7%)"` from `contextUsage`. |
-| `apps/tui/src/components/transcript.tsx` | Transient one-line cell after compaction completes: `"compacted X old turns → Y chars saved"`. |
-| `packages/harness/scripts/smoke/compaction.mjs` | Rewrite for pressure-gradient: drive each tier individually with a scripted provider that returns canned summaries. Keep a separate `compaction-floor.mjs` for the truncate floor case. |
-| `apps/cli/scripts/smoke-compaction-summary.ts` *(new)* | End-to-end: real `compaction.summary` events land, cache is consulted on second invocation (no second summarizer call), event log retains originals, summary message has the correct framing. |
+| `apps/tui/src/state/transcript.ts` | Reduce `compaction.completed` → update `lastCompactionGains` + `contextUsage`; reduce `compaction.summary` (start) / `compaction.summary.failed` to toggle `compactionInProgress`; reduce `model.completed` → update `contextUsage.used` from `usage.promptTokens` when present. Update `cloneTranscript` to copy the new fields. |
+| `apps/tui/src/components/prompt.tsx` | Extend the existing `Footer` component (currently lives here, not a separate file) to render `"[compacting...]"` when `compactionInProgress` and `"32k / 1M (3%)"` from `contextUsage`. Thread the new state from `app.tsx`'s transcript via props. |
+| `apps/tui/src/components/transcript.tsx` | Transient one-line cell after `compaction.completed`: `"compacted X old turns → Y chars saved"`. |
+| `packages/harness/scripts/smoke/compaction.mjs` | Rewrite for pressure-gradient: drive each tier individually with a scripted provider that returns canned summaries. Smoke runner auto-discovers `*.mjs` under `scripts/smoke/`, so additional cases land naturally as `compaction-cache.mjs`, `compaction-floor.mjs`, etc. |
+| `apps/cli/scripts/smoke-compaction-summary.ts` *(new)* | End-to-end: real `compaction.summary` events land, cache is consulted on second invocation (no second summarizer call), event log retains originals, summary message has the correct framing. Add to `smoke:apps` in root `package.json`. |
+
+No `events.ts` change needed. Events have no type-union — new event
+types are valid the moment something calls `recordEvent("compaction.
+summary", ...)`. The string literals live at their call sites (the
+strategy + summarize module) and read like the rest of the kernel.
 
 ## Verification
 
@@ -478,6 +509,6 @@ Left open and additive:
 | Promotion event | `compaction.tool_promoted` | `compaction.inline_artifacted`, `artifact.promoted` — `compaction.*` keeps it grouped with related metadata |
 | Watermark field | `dropOldReasoning: 0.50` | `dropReasoningPressure`, `t1Threshold` — name matches what the tier does, not its tier number (tier numbers are implementation, not user-facing) |
 | Tier identifier | `drop_old_reasoning` (snake) | `dropOldReasoning` (camel) — snake for log/event payloads matches existing `event.type` casing |
-| `preserveRecentTurns` (replaces `preserveRecentMessages`) | `keepRecentTurns`, `recentTurnHeadroom` | "Preserve" matches the existing field name; turns are clearer than messages |
+| `preserveRecentTurns` (replaces `preserveRecentMessages`) | `keepRecentTurns`, `recentTurnHeadroom` | "Preserve" matches the existing field name; turns are clearer than messages. Migration is trivial — only one smoke (`scripts/smoke/compaction.mjs`) and the strategy file reference `preserveRecentMessages`; no app sets it. |
 | Summary message framing prefix | `[Earlier work — full transcript at <id>. Current focus appears to be: ...]` | `[Compacted earlier turns. Current focus: ...]` — chose the longer form because it tells the model the recovery path (`read_artifact <id>`) inline |
 | Context indicator format | `32k / 435k (7%)` | `7% (32/435k)`, `32k of 435k`, bar graph — short numeric form fits in a footer column with the prompt status |
