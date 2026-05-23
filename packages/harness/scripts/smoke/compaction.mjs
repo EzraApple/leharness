@@ -59,6 +59,7 @@ const baseDeps = {
   model: "fake-model",
   systemPrompt: "smoke compaction",
   tasks: false,
+  artifacts: false,
 }
 
 await runInvocation(sessionId, longPriorText, baseDeps)

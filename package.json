@@ -17,7 +17,7 @@
     "package:verify": "pnpm package:pack && node scripts/verify-npm-package.mjs",
     "smoke": "pnpm smoke:harness && pnpm smoke:apps",
     "smoke:harness": "pnpm -r build && node packages/harness/scripts/smoke.mjs",
-    "smoke:apps": "pnpm -r build && pnpm exec tsx apps/cli/scripts/smoke-edit-file.ts && pnpm exec tsx apps/cli/scripts/smoke-background-tasks.ts && pnpm exec tsx apps/cli/scripts/smoke-bash-runtime.ts && pnpm exec tsx apps/cli/scripts/smoke-subagents.ts && pnpm exec tsx apps/tui/scripts/smoke-transcript.ts"
+    "smoke:apps": "pnpm -r build && pnpm exec tsx apps/cli/scripts/smoke-edit-file.ts && pnpm exec tsx apps/cli/scripts/smoke-background-tasks.ts && pnpm exec tsx apps/cli/scripts/smoke-bash-runtime.ts && pnpm exec tsx apps/cli/scripts/smoke-subagents.ts && pnpm exec tsx apps/cli/scripts/smoke-artifacts.ts && pnpm exec tsx apps/tui/scripts/smoke-transcript.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.12",

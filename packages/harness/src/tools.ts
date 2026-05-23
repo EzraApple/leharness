@@ -81,8 +81,10 @@ export async function executeToolCall(
   try {
     const result = await tool.execute(parsed.data, ctx)
     if (result.kind === "ok") {
-      const value = truncateOutput(result.output)
-      return { kind: "ok", call, value, summary: result.summary }
+      // No truncation here — the loop layer decides whether to artifact
+      // the full output or truncate it as a fallback (see
+      // core/execute-tools.ts). Tools always hand back raw bytes.
+      return { kind: "ok", call, value: result.output, summary: result.summary }
     }
     if (result.kind === "started") {
       return { kind: "started", call, task: result.task, summary: result.summary }

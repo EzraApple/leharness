@@ -16,16 +16,26 @@
 //                      "process_exited") so the log stays internally
 //                      consistent across restarts.
 
+import {
+  type ArtifactOptions,
+  formatArtifactStub,
+  resolveArtifactOptions,
+  writeArtifact,
+} from "../artifacts.js"
 import type { Event } from "../events.js"
 import type { Message, SessionTaskServices } from "../tasks.js"
+import { truncateOutput } from "../tools.js"
 import type { InvocationState } from "./state.js"
 
 export async function drainTaskQueue(
   invocation: InvocationState,
   services: SessionTaskServices,
+  artifactsConfig: ArtifactOptions | false | undefined,
 ): Promise<void> {
+  const artifacts = resolveArtifactOptions(artifactsConfig)
   for (const message of services.queue.drain()) {
-    await invocation.recordEvent(message.kind, messagePayload(message))
+    const payload = await materializeMessage(invocation, message, artifacts)
+    await invocation.recordEvent(message.kind, payload)
   }
 }
 
@@ -61,21 +71,33 @@ export async function reapOrphanTasks(
   }
 }
 
-function messagePayload(message: Message): Record<string, unknown> {
+async function materializeMessage(
+  invocation: InvocationState,
+  message: Message,
+  artifacts: { enabled: false } | { enabled: true; thresholdBytes: number },
+): Promise<Record<string, unknown>> {
   if (message.kind === "task.completed") {
+    const rendered = await renderLarge(invocation, message.result, artifacts, {
+      sourceTaskId: message.taskId,
+    })
     return {
       taskId: message.taskId,
-      result: message.result,
+      result: rendered.value,
       summary: message.summary,
       ts: message.occurredAt,
+      ...(rendered.artifactId === undefined ? {} : { artifactId: rendered.artifactId }),
     }
   }
   if (message.kind === "task.failed") {
+    const rendered = await renderLarge(invocation, message.error, artifacts, {
+      sourceTaskId: message.taskId,
+    })
     return {
       taskId: message.taskId,
-      error: message.error,
+      error: rendered.value,
       summary: message.summary,
       ts: message.occurredAt,
+      ...(rendered.artifactId === undefined ? {} : { artifactId: rendered.artifactId }),
     }
   }
   return {
@@ -84,6 +106,30 @@ function messagePayload(message: Message): Record<string, unknown> {
     summary: message.summary,
     ts: message.occurredAt,
   }
+}
+
+async function renderLarge(
+  invocation: InvocationState,
+  rawValue: string,
+  artifacts: { enabled: false } | { enabled: true; thresholdBytes: number },
+  meta: { sourceTaskId?: string },
+): Promise<{ value: string; artifactId: string | undefined }> {
+  const byteLength = Buffer.byteLength(rawValue, "utf8")
+  if (artifacts.enabled && byteLength > artifacts.thresholdBytes) {
+    const artifact = await writeArtifact(invocation.sessionId, rawValue, {
+      mime: "text/plain",
+      sourceTaskId: meta.sourceTaskId,
+    })
+    await invocation.recordEvent("artifact.created", {
+      id: artifact.id,
+      sessionId: artifact.sessionId,
+      byteCount: artifact.byteCount,
+      mime: artifact.mime,
+      sourceTaskId: meta.sourceTaskId,
+    })
+    return { value: formatArtifactStub(artifact, rawValue), artifactId: artifact.id }
+  }
+  return { value: truncateOutput(rawValue), artifactId: undefined }
 }
 
 function readEventTaskId(event: Event): string | undefined {
