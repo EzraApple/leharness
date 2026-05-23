@@ -67,8 +67,8 @@ the same primitive.
 | Storage location | `.leharness/sessions/<sessionId>/artifacts/<artifactId>` — co-located with the session's `events.jsonl` so cleanup is a single directory remove. |
 | Id scheme | `artifact_<ulid>` — same shape as `task_<ulid>` for consistency. |
 | Auto-artifact threshold | 8 * 1024 bytes (8KB). Tool outputs above this get artifacted automatically; outputs below pass through inline as today. Configurable later if real usage shows the threshold is wrong. |
-| Truncation cap | **Stays** as the fallback when artifacts are disabled (`HarnessDeps.artifacts === false`). When artifacts are on, auto-artifact catches at 8KB before truncation ever fires; when off, the existing 16KB truncation behaves exactly as today. Lets us drop artifacts cleanly without re-introducing context bloat. |
-| Removability | First-class concern. The whole feature is opt-out via `HarnessDeps.artifacts = false`. When disabled: no auto-artifact, no `read_artifact` injection, no `artifact.created` events, truncation re-engaged. Reverting the implementation PR is a clean rollback because consumers' code never had to read the new event type or the `artifactId` field — both are additive. See *Removability* section below for full details. |
+| Truncation cap | **Stays** as a last-resort safety net for adversarially-huge results. Auto-artifact catches outputs at 8KB before truncation ever fires in normal use; if the artifact write itself errors or the path is somehow bypassed, the existing 16KB truncation prevents context blow-up. |
+| Removability | The feature is its own module — `packages/harness/src/artifacts.ts` plus the two call sites in `core/execute-tools.ts` and `core/task-drain.ts`. No runtime flag: if the feature ever needs to come out, deleting the module + reverting the two ~10-line auto-artifact branches restores truncation as the only safety net. Consumers' code never had to *read* the new event type or `artifactId` field — both are additive. See *Removability* section below. |
 | Stub format | `[artifact: <id> · <byteCount> bytes · head:\n<first ~400 chars>\n]`. Gives the model immediate context + a stable handle to fetch more. |
 | Event | New `artifact.created { id, sessionId, byteCount, mime?, sourceCallId?, sourceTaskId? }`. Records what tool/task produced the artifact for replay tooling. |
 | Tool result projection | When a tool result was artifacted, the `tool.completed` event records the stub as `result` AND adds an `artifactId: <id>` field. `eventToMessage` projects the stub verbatim — the model sees what the tool effectively returned. |
@@ -260,63 +260,31 @@ output say", calling `read_artifact` should give it the full thing.
 ## Removability
 
 Treated as a first-class property because this is the first kernel
-feature that *might* not survive a real-usage review. Wired so that
-dropping it is mechanical, not a refactor.
+feature that *might* not survive a real-usage review. The rollback story
+is modularity, not a runtime flag — a feature flag would just be more
+code paths to maintain, and the "off" branch would slowly bit-rot. If
+artifacts ever need to come out, deleting the module is straightforward:
 
-**Opt-out at runtime:**
+**Single-point-of-removal:** if the file
+`packages/harness/src/artifacts.ts` is deleted, the only other code
+that needs to come out is:
 
-```ts
-export interface HarnessDeps {
-  // existing fields
-  artifacts?: ArtifactOptions | false
-}
+- The `import` + ~10-line auto-artifact branch in
+  `core/execute-tools.ts` (collapse `sizeForContext` back to a
+  `truncateOutput` call).
+- The `import` + ~10-line auto-artifact branch in `core/task-drain.ts`
+  (collapse `renderLarge` back to a `truncateOutput` call).
+- The `readArtifactTool` injection in `core/prepare-prompt.ts`.
+- The `export * from "./artifacts.js"` line in `index.ts`.
 
-export interface ArtifactOptions {
-  autoThresholdBytes?: number   // defaults to AUTO_ARTIFACT_THRESHOLD_BYTES
-}
-```
-
-- `artifacts` omitted (default): enabled with default 8KB threshold.
-- `artifacts: false`: feature off — see below.
-- `artifacts: { autoThresholdBytes: N }`: enabled, custom threshold.
-
-**When `artifacts: false`:**
-
-- `executeTools` skips the auto-artifact branch; tool results pass
-  through inline (subject to truncation, see next).
-- `task-drain` skips the auto-artifact branch on `task.completed`
-  Messages.
-- `read_artifact` is not auto-injected into the prompt's tool list.
-- No `artifact.created` events are recorded.
-- The 16KB `MAX_TOOL_OUTPUT_BYTES` truncation in `tools.ts` re-engages
-  exactly as today.
-
-**Reverting the implementation PR cleanly:**
-
-- `git revert` of the implementation commit removes the artifact
-  service, the conditional branches in execute-tools / task-drain, the
-  `read_artifact` tool, and the new optional `artifactId` field on
-  `tool.completed`.
-- Truncation comes back as the only safety net (which it was before).
-- Consumers' code never had to *read* the new artifact-related fields:
-  - `tool.completed.artifactId` is optional; reducers that ignored it
-    keep working unchanged.
-  - `artifact.created` is a new event type; reducers that didn't have a
-    case for it fall through to the default (already a no-op in the
-    TUI's `reduceEvent` and the CLI's `LiveRenderer`).
-- The `HarnessDeps.artifacts` field would disappear; consumers who set
-  it would get a typecheck error, but that's grep-and-delete, no
-  semantic migration.
-
-**Single-point-of-removal:** if the file `packages/harness/src/artifacts.ts`
-is deleted, the only other code that needs to come out is:
-- The `import` + conditional block in `core/execute-tools.ts`
-- The `import` + conditional block in `core/task-drain.ts`
-- The `readArtifactTool` entry in `tasks.ts`'s `builtInTaskTools`
-- The `artifacts?` field on `HarnessDeps`
-
-Roughly ~80 lines of net deletion, no projection refactors, no event-log
-migration. Designed for that.
+Roughly ~80 lines of net deletion, no projection refactors, no
+event-log migration. The `tool.completed.artifactId` field becomes
+permanently absent (reducers that ignored it keep working unchanged),
+and the `artifact.created` event type simply stops being emitted
+(reducers that didn't have a case for it already fall through to the
+default — a no-op in the TUI's `reduceEvent` and the CLI's
+`LiveRenderer`). Truncation comes back as the only safety net, which
+is exactly where the harness was before.
 
 ## What this rules out, what it leaves open
 

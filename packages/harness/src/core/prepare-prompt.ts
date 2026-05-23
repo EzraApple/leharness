@@ -7,7 +7,7 @@
 // Returns both the projected PromptInput and the final tool list so the loop
 // can pass the same list to executeTools.
 
-import { type ArtifactOptions, readArtifactTool } from "../artifacts.js"
+import { readArtifactTool } from "../artifacts.js"
 import type { Event } from "../events.js"
 import type { ReasoningEffort } from "../models.js"
 import type { CompactionOptions, PromptInput } from "../prompt.js"
@@ -44,7 +44,6 @@ interface PrepareDeps {
   skills?: SkillOptions | false
   tasks?: boolean
   subagents?: boolean
-  artifacts?: ArtifactOptions | false
 }
 
 interface PrepareOptions {
@@ -67,14 +66,8 @@ export async function preparePrompt(
   const tasksEnabled = deps.tasks !== false
   const subagentsEnabled =
     deps.subagents !== false && taskServices?.executors.has("delegated") === true
-  const artifactsEnabled = deps.artifacts !== false
   let system = baseSystem
-  let tools = applyBuiltIns(deps.tools, {
-    tasksEnabled,
-    subagentsEnabled,
-    artifactsEnabled,
-    taskServices,
-  })
+  let tools = applyBuiltIns(deps.tools, { tasksEnabled, subagentsEnabled, taskServices })
 
   if (skillOptionsEnabled(deps.skills)) {
     const discoveredSkills = await discoverSkills(skillConfig?.root)
@@ -93,12 +86,7 @@ export async function preparePrompt(
         }),
         ...deps.tools.filter((tool) => tool.name !== "load_skill"),
       ]
-      tools = applyBuiltIns(skillTools, {
-        tasksEnabled,
-        subagentsEnabled,
-        artifactsEnabled,
-        taskServices,
-      })
+      tools = applyBuiltIns(skillTools, { tasksEnabled, subagentsEnabled, taskServices })
     }
   }
 
@@ -127,7 +115,6 @@ function applyBuiltIns(
   flags: {
     tasksEnabled: boolean
     subagentsEnabled: boolean
-    artifactsEnabled: boolean
     taskServices?: SessionTaskServices
   },
 ): Tool[] {
@@ -136,7 +123,7 @@ function applyBuiltIns(
   if (flags.tasksEnabled) {
     next = [...next, ...builtInTaskTools.filter((tool) => !overrides.has(tool.name))]
   }
-  if (flags.artifactsEnabled && !overrides.has("read_artifact")) {
+  if (!overrides.has("read_artifact")) {
     next = [...next, readArtifactTool]
   }
   if (

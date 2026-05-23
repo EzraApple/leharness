@@ -7,7 +7,6 @@
 //   4. Pagination via since_byte.
 //   5. Background-task drain artifacts too — large task.completed
 //      Messages get the same treatment.
-//   6. artifacts: false disables the feature (truncation re-engages).
 
 import assert from "node:assert/strict"
 import { promises as fs } from "node:fs"
@@ -287,36 +286,4 @@ function baseDeps(
   await disposeTaskServices(sessionId)
 }
 
-// 6. artifacts: false disables the feature.
-{
-  const sessionId = `smoke-artifact-off-${Date.now()}`
-  enableShellRuntime(getOrCreateTaskServices(sessionId))
-  const largeSize = AUTO_ARTIFACT_THRESHOLD_BYTES * 3
-  const tool = makeEchoTool("z")
-  const provider = scriptedProvider("p", [
-    {
-      text: "fetching",
-      toolCalls: [{ id: "call_1", name: "echo", args: { size: largeSize } }],
-      stopReason: "tool_calls",
-    },
-    { text: "done", toolCalls: [], stopReason: "stop" },
-  ])
-  const events = await runInvocation(
-    sessionId,
-    "go",
-    baseDeps(provider, tool, { artifacts: false }),
-  )
-  const created = events.find((event) => event.type === "artifact.created")
-  assert.equal(created, undefined, "artifacts: false should not produce artifact.created")
-  const completed = events.find(
-    (event) =>
-      event.type === "tool.completed" &&
-      (event.call as { name?: string } | undefined)?.name === "echo",
-  )
-  assert.equal(completed?.artifactId, undefined, "no artifactId when disabled")
-  // Truncation kicks in: result should end with [truncated: ...]
-  assert.match(String(completed?.result ?? ""), /\[truncated: \d+ bytes\]$/)
-  await disposeTaskServices(sessionId)
-}
-
-console.log("smoke-artifacts: large/small/read/paginate/bg-drain/disabled paths ok")
+console.log("smoke-artifacts: large/small/read/paginate/bg-drain paths ok")

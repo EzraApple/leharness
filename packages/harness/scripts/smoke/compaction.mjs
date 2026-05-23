@@ -59,14 +59,20 @@ const baseDeps = {
   model: "fake-model",
   systemPrompt: "smoke compaction",
   tasks: false,
-  artifacts: false,
 }
+
+// Budget chosen to fit the always-injected read_artifact tool schema
+// (≈0.8KB serialized) plus the system prompt and a single short user
+// message — but not the prior turn's user+assistant pair (both carry
+// the long prior context). The first uncompacted request still blows
+// past this on its own, so compaction fires and drops the old turns.
+const COMPACTION_BUDGET = 1200
 
 await runInvocation(sessionId, longPriorText, baseDeps)
 await runInvocation(sessionId, "fresh question", {
   ...baseDeps,
   compaction: {
-    maxInputChars: 120,
+    maxInputChars: COMPACTION_BUDGET,
     preserveRecentMessages: 1,
   },
 })
@@ -86,7 +92,7 @@ assert(
   "second request should preserve the latest user message",
 )
 assert(
-  requestSize(secondRequest) <= 120,
+  requestSize(secondRequest) <= COMPACTION_BUDGET,
   `second request should fit the compaction budget; got ${requestSize(secondRequest)}`,
 )
 assert(
@@ -102,7 +108,7 @@ const compactionEvent = compactionEvents[0]
 assert(
   typeof compactionEvent.strategy === "string" &&
     compactionEvent.reason === "input_too_large" &&
-    compactionEvent.outputChars <= 120,
+    compactionEvent.outputChars <= COMPACTION_BUDGET,
   `unexpected compaction event payload: ${JSON.stringify(compactionEvent)}`,
 )
 assert(

@@ -2,16 +2,15 @@
 // One step's worth of tool dispatch. The model produced N tool calls; this
 // runs them sequentially, emits `tool.started` before each, then routes the
 // result to the right terminal event:
-//   ok      → tool.completed   (auto-artifacted or truncated for big outputs)
+//   ok      → tool.completed   (large outputs auto-artifacted)
 //   error   → tool.failed
 //   started → task.started     (handed off to a background executor)
 // Returns whether the step was cancelled mid-flight so the loop can stop.
 
 import {
   type Artifact,
-  type ArtifactOptions,
+  AUTO_ARTIFACT_THRESHOLD_BYTES,
   formatArtifactStub,
-  resolveArtifactOptions,
   writeArtifact,
 } from "../artifacts.js"
 import {
@@ -31,10 +30,8 @@ export async function executeTools(
   calls: ToolCall[],
   tools: Tool[],
   ctx: ToolContext,
-  artifactsConfig: ArtifactOptions | false | undefined,
 ): Promise<ToolRun> {
   const results: ToolResult[] = []
-  const artifacts = resolveArtifactOptions(artifactsConfig)
 
   for (const call of calls) {
     if (ctx.signal?.aborted === true) return { kind: "cancelled", results }
@@ -42,9 +39,7 @@ export async function executeTools(
     const result = await executeToolCall(call, tools, ctx)
     results.push(result)
     if (result.kind === "ok") {
-      const sized = await sizeAndArtifact(ctx, result.value, artifacts, {
-        sourceCallId: result.call.id,
-      })
+      const sized = await sizeForContext(ctx, result.value, { sourceCallId: result.call.id })
       if (sized.artifact !== undefined) {
         await ctx.recordEvent?.("artifact.created", {
           id: sized.artifact.id,
@@ -88,19 +83,18 @@ export async function executeTools(
 
 /**
  * Decide what the in-context `value` should be for a tool's raw output:
- *
- *   - artifacts enabled + output ≥ threshold → write artifact, return stub
- *   - artifacts disabled + output > 16 KB    → truncate as today
- *   - otherwise                              → pass through raw
+ * outputs above AUTO_ARTIFACT_THRESHOLD_BYTES land on disk as artifacts
+ * and the caller sees a short stub; everything else passes through
+ * inline (still subject to `truncateOutput` as a last-resort safety
+ * net for adversarially-huge results, which artifact_id would normally
+ * have already caught).
  */
-async function sizeAndArtifact(
+async function sizeForContext(
   ctx: ToolContext,
   rawValue: string,
-  artifacts: { enabled: false } | { enabled: true; thresholdBytes: number },
   meta: { sourceCallId?: string; sourceTaskId?: string },
 ): Promise<{ value: string; artifact: Artifact | undefined }> {
-  const byteLength = Buffer.byteLength(rawValue, "utf8")
-  if (artifacts.enabled && byteLength > artifacts.thresholdBytes) {
+  if (Buffer.byteLength(rawValue, "utf8") > AUTO_ARTIFACT_THRESHOLD_BYTES) {
     const artifact = await writeArtifact(ctx.sessionId, rawValue, {
       mime: "text/plain",
       sourceCallId: meta.sourceCallId,

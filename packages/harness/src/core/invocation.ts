@@ -5,7 +5,6 @@
 // the AbortSignal fires. Everything else in this directory exists to keep
 // this loop short enough to read top-to-bottom.
 
-import type { ArtifactOptions } from "../artifacts.js"
 import { compact } from "../compaction/index.js"
 import type { Event } from "../events.js"
 import type { ReasoningEffort } from "../models.js"
@@ -39,7 +38,6 @@ export interface HarnessDeps {
   skills?: SkillOptions | false
   tasks?: boolean
   subagents?: boolean
-  artifacts?: ArtifactOptions | false
 }
 
 export interface RunOptions {
@@ -79,7 +77,7 @@ export async function runInvocation(
   }
 
   if (taskServices !== undefined) {
-    await drainTaskQueue(invocation, taskServices, deps.artifacts)
+    await drainTaskQueue(invocation, taskServices)
     await reapOrphanTasks(invocation, taskServices)
   }
 
@@ -87,7 +85,7 @@ export async function runInvocation(
     if (aborted(signal)) return endInvocation(invocation, "cancelled")
 
     if (stepNumber > 1 && taskServices !== undefined) {
-      await drainTaskQueue(invocation, taskServices, deps.artifacts)
+      await drainTaskQueue(invocation, taskServices)
     }
 
     await invocation.recordEvent("step.started", { stepNumber })
@@ -119,17 +117,12 @@ export async function runInvocation(
       return endInvocation(invocation, "no_tool_calls")
     }
 
-    const toolRun = await executeTools(
-      promptResult.response.toolCalls,
-      preparedPrompt.tools,
-      {
-        sessionId,
-        recordEvent: invocation.recordEvent,
-        signal,
-        taskServices,
-      },
-      deps.artifacts,
-    )
+    const toolRun = await executeTools(promptResult.response.toolCalls, preparedPrompt.tools, {
+      sessionId,
+      recordEvent: invocation.recordEvent,
+      signal,
+      taskServices,
+    })
     if (toolRun.kind === "cancelled") return endInvocation(invocation, "cancelled")
   }
 

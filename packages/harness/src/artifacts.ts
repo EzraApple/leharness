@@ -6,10 +6,6 @@
 // in-context value with a short stub plus the artifact id. The model uses
 // the built-in read_artifact tool to pull the full content (or a paginated
 // slice) when it actually needs the detail.
-//
-// Designed to be opt-out via HarnessDeps.artifacts = false. When disabled
-// the harness falls back to the existing 16KB truncation cap. See plan 006
-// for the full removability story.
 
 import { promises as fs } from "node:fs"
 import path from "node:path"
@@ -19,7 +15,7 @@ import { resolveLeharnessHome } from "./events.js"
 import type { Tool, ToolContext, ToolExecuteResult } from "./tools.js"
 
 export const AUTO_ARTIFACT_THRESHOLD_BYTES = 8 * 1024
-export const STUB_HEAD_CHARS = 400
+const STUB_HEAD_CHARS = 400
 const MAX_ARTIFACT_READ_BYTES = 16 * 1024
 
 export interface Artifact {
@@ -36,11 +32,7 @@ export interface WriteArtifactOptions {
   sourceTaskId?: string
 }
 
-export interface ArtifactOptions {
-  autoThresholdBytes?: number
-}
-
-export function newArtifactId(): string {
+function newArtifactId(): string {
   return `artifact_${ulid()}`
 }
 
@@ -125,14 +117,4 @@ export const readArtifactTool: Tool<ReadArtifactArgs> = {
       return { kind: "error", message: `read_artifact failed: ${message}` }
     }
   },
-}
-
-export function resolveArtifactOptions(
-  config: ArtifactOptions | false | undefined,
-): { enabled: false } | { enabled: true; thresholdBytes: number } {
-  if (config === false) return { enabled: false }
-  return {
-    enabled: true,
-    thresholdBytes: config?.autoThresholdBytes ?? AUTO_ARTIFACT_THRESHOLD_BYTES,
-  }
 }

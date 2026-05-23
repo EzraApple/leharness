@@ -4,9 +4,12 @@
 //   drainTaskQueue   — at the top of every step, pull any Messages that
 //                      background executors have posted since the last drain
 //                      and append them as task.* events with their original
-//                      occurredAt timestamps. This is the only place outside
-//                      the loop itself that records task.* terminal events,
-//                      preserving the single-writer rule.
+//                      occurredAt timestamps. Large result/error strings get
+//                      auto-artifacted before the event is recorded so
+//                      verbose long-running tasks don't bloat context.
+//                      This is the only place outside the loop itself that
+//                      records task.* terminal events, preserving the
+//                      single-writer rule.
 //
 //   reapOrphanTasks  — runs once per invocation startup. Finds task.started
 //                      events with no matching terminal in the log and no
@@ -16,12 +19,7 @@
 //                      "process_exited") so the log stays internally
 //                      consistent across restarts.
 
-import {
-  type ArtifactOptions,
-  formatArtifactStub,
-  resolveArtifactOptions,
-  writeArtifact,
-} from "../artifacts.js"
+import { AUTO_ARTIFACT_THRESHOLD_BYTES, formatArtifactStub, writeArtifact } from "../artifacts.js"
 import type { Event } from "../events.js"
 import type { Message, SessionTaskServices } from "../tasks.js"
 import { truncateOutput } from "../tools.js"
@@ -30,11 +28,9 @@ import type { InvocationState } from "./state.js"
 export async function drainTaskQueue(
   invocation: InvocationState,
   services: SessionTaskServices,
-  artifactsConfig: ArtifactOptions | false | undefined,
 ): Promise<void> {
-  const artifacts = resolveArtifactOptions(artifactsConfig)
   for (const message of services.queue.drain()) {
-    const payload = await materializeMessage(invocation, message, artifacts)
+    const payload = await materializeMessage(invocation, message)
     await invocation.recordEvent(message.kind, payload)
   }
 }
@@ -74,10 +70,9 @@ export async function reapOrphanTasks(
 async function materializeMessage(
   invocation: InvocationState,
   message: Message,
-  artifacts: { enabled: false } | { enabled: true; thresholdBytes: number },
 ): Promise<Record<string, unknown>> {
   if (message.kind === "task.completed") {
-    const rendered = await renderLarge(invocation, message.result, artifacts, {
+    const rendered = await renderLarge(invocation, message.result, {
       sourceTaskId: message.taskId,
     })
     return {
@@ -89,7 +84,7 @@ async function materializeMessage(
     }
   }
   if (message.kind === "task.failed") {
-    const rendered = await renderLarge(invocation, message.error, artifacts, {
+    const rendered = await renderLarge(invocation, message.error, {
       sourceTaskId: message.taskId,
     })
     return {
@@ -111,11 +106,9 @@ async function materializeMessage(
 async function renderLarge(
   invocation: InvocationState,
   rawValue: string,
-  artifacts: { enabled: false } | { enabled: true; thresholdBytes: number },
   meta: { sourceTaskId?: string },
 ): Promise<{ value: string; artifactId: string | undefined }> {
-  const byteLength = Buffer.byteLength(rawValue, "utf8")
-  if (artifacts.enabled && byteLength > artifacts.thresholdBytes) {
+  if (Buffer.byteLength(rawValue, "utf8") > AUTO_ARTIFACT_THRESHOLD_BYTES) {
     const artifact = await writeArtifact(invocation.sessionId, rawValue, {
       mime: "text/plain",
       sourceTaskId: meta.sourceTaskId,
