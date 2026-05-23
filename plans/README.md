@@ -40,3 +40,12 @@ Index:
   paginated slice. Foundation for the next plan (smart compaction). The
   same PR also renames `packages/harness/src/harness/` →
   `packages/harness/src/core/`.
+- `007-smart-compaction.md` — plan for a pressure-gradient compaction
+  strategy that replaces `naive-truncate`. Cheap structural tiers (drop
+  old reasoning, retroactively artifact inline tool results, drop old
+  tool message bodies) kick in at intermediate watermarks (50% / 65% /
+  75% of budget); LLM-summarized turn windows fire above 85% / 95% with
+  handoff-style "state of play" briefs cached as `compaction.summary`
+  events keyed to source event-id ranges. Re-projection from raw
+  `events.jsonl` every step means no compounded loss. Plan-008 hooks
+  for cheaper summarizer models and token-accurate budgets.
