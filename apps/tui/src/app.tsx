@@ -459,6 +459,7 @@ export function TuiApp({
       if (runningRef.current && (key.escape || rawInput === "\u001b")) {
         abortRef.current?.abort()
         setStatus("cancelling")
+        replaceQueuedMessages([])
         return
       }
       if (key.escape && slashToken !== undefined) {

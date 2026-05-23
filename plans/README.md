@@ -25,3 +25,10 @@ Index:
   `leharness` with the `lh` CLI command, first-run setup, and update story.
 - `003-first-class-skills.md` — plan for workspace skill discovery, compact
   skill catalogs, `load_skill`, hot reload, and smoke coverage.
+- `005-subagents.md` — plan for isolated subagents as a new `TaskKind ===
+  "delegated"`. Ships a `SubagentExecutor`, a per-session `spawn_subagent`
+  tool, and programmatic `SubagentPreset` registration. Reuses the
+  `MessageQueue` + `wait_task` / `read_task` / `cancel_task` primitives
+  from the background-tasks work merged in #18. Plan 004 (background
+  tasks) was implemented directly in that PR's commits rather than
+  landing as a separate plans/ file — see #18 for the design history.

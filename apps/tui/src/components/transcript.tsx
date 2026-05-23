@@ -275,7 +275,12 @@ function pushBackgroundTool(rows: TranscriptRow[], cell: Cell, width: number): v
     return
   }
   // cancelled
-  const reasonText = marker.reason === "process_exited" ? "process exited" : "user"
+  const reasonText =
+    marker.reason === "process_exited"
+      ? "process exited"
+      : marker.reason === "parent"
+        ? "parent"
+        : "user"
   const text = `${title} ${idSuffix} cancelled (${reasonText})`
   pushDottedWrapped(rows, cell, text, width, "yellow", "yellow", undefined, false, "bg-cancelled")
 }

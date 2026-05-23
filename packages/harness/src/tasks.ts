@@ -14,13 +14,23 @@ import { ulid } from "ulid"
 import { z } from "zod"
 import type { Tool, ToolContext, ToolExecuteResult } from "./tools.js"
 
-export type TaskKind = "shell" // | "delegated" | "compaction" — reserved for future plans
+export type TaskKind = "shell" | "delegated" // | "compaction" — reserved for a future plan
 
 export type TaskState = "running" | "completed" | "failed" | "cancelled"
 
-export type CancelReason = "user" | "process_exited"
+// Reasons a task can be cancelled, ordered by where the cancel came from:
+//   "parent"          — the parent agent called cancel_task on this task.
+//   "user"            — reserved for a future human-initiated cancel path
+//                       (e.g. a /cancel TUI command). No code path produces
+//                       this today; kept in the union so callers can switch
+//                       on it without breaking when the path lands.
+//   "process_exited"  — the parent process restarted while this task was
+//                       still running; orphan-reaped on the next invocation.
+export type CancelReason = "parent" | "user" | "process_exited"
 
-export type TaskPayload = { kind: "shell"; command: string }
+export type TaskPayload =
+  | { kind: "shell"; command: string }
+  | { kind: "delegated"; childSessionId: string; presetName?: string; prompt: string }
 
 export interface Task {
   id: string

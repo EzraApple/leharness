@@ -62,7 +62,9 @@ export function createShellExecutor(deps: {
         kind: "task.cancelled",
         taskId: record.task.id,
         occurredAt,
-        reason: "user",
+        // SIGTERM/SIGKILL only come from this executor's cancel() path,
+        // which is driven by the cancel_task tool — i.e. the parent agent.
+        reason: "parent",
         summary: signal.toLowerCase(),
       })
       return

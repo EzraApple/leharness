@@ -6,7 +6,7 @@
 //   3. Cross-invocation drain — a completion lands while idle, a follow-up
 //      runInvocation(userText: undefined) drains it as task.completed.
 //   4. cancel_task end-to-end — model fires cancel_task; task.cancelled
-//      (reason: "user") lands in the log.
+//      (reason: "parent") lands in the log.
 
 import assert from "node:assert/strict"
 import {
@@ -216,8 +216,8 @@ function delay(ms: number): Promise<void> {
   assert.ok(cancelled, "expected task.cancelled event in the drained log")
   assert.equal(
     (cancelled as { reason?: string }).reason,
-    "user",
-    "cancellation reason should be 'user'",
+    "parent",
+    "cancellation reason should be 'parent' (parent agent called cancel_task)",
   )
   await disposeTaskServices(sessionId)
 }

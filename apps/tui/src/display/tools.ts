@@ -71,10 +71,36 @@ const TOOL_DISPLAYS: Record<string, ToolDisplay> = {
     failed: "cancel failed for",
     target: (args) => shortTaskId(readField(args, "task_id")),
   },
+  spawn_subagent: {
+    pending: "spawning",
+    completed: "spawned",
+    failed: "spawn failed for",
+    target: (args) => {
+      const type = readField(args, "type")
+      const prompt = readField(args, "prompt")
+      if (type !== undefined) return `${type}: ${truncate(prompt ?? "", 60)}`
+      return truncate(prompt ?? "subagent", 80)
+    },
+  },
+}
+
+const SUBAGENT_DISPLAY: ToolDisplay = {
+  pending: "running",
+  completed: "ran subagent",
+  failed: "subagent failed",
+  target: (payload) => {
+    if (typeof payload !== "object" || payload === null) return undefined
+    const record = payload as { presetName?: unknown; prompt?: unknown }
+    const presetName = typeof record.presetName === "string" ? record.presetName : undefined
+    const prompt = typeof record.prompt === "string" ? record.prompt : undefined
+    if (presetName !== undefined) return `${presetName}: ${truncate(prompt ?? "", 60)}`
+    return truncate(prompt ?? "subagent", 80)
+  },
 }
 
 const TASK_KIND_DISPLAYS: Record<TaskKind, ToolDisplay> = {
   shell: TOOL_DISPLAYS.bash as ToolDisplay,
+  delegated: SUBAGENT_DISPLAY,
 }
 
 function displayForToolName(name: string): ToolDisplay | undefined {
@@ -174,6 +200,10 @@ function readField(args: unknown, key: string): string | undefined {
   if (typeof args !== "object" || args === null) return undefined
   const value = (args as Record<string, unknown>)[key]
   return typeof value === "string" ? value : undefined
+}
+
+function truncate(value: string, max: number): string {
+  return value.length <= max ? value : `${value.slice(0, max - 1)}…`
 }
 
 function shortTaskId(value: string | undefined): string | undefined {

@@ -37,6 +37,7 @@ export interface HarnessDeps {
   reasoningEffort?: ReasoningEffort
   skills?: SkillOptions | false
   tasks?: boolean
+  subagents?: boolean
 }
 
 export interface RunOptions {
@@ -89,7 +90,7 @@ export async function runInvocation(
 
     await invocation.recordEvent("step.started", { stepNumber })
 
-    const preparedPrompt = await preparePrompt(invocation, userText, deps, options)
+    const preparedPrompt = await preparePrompt(invocation, userText, deps, options, taskServices)
     const prompt = await compact(preparedPrompt.input)
 
     if (aborted(signal)) return endInvocation(invocation, "cancelled")

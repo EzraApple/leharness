@@ -21,7 +21,8 @@ import {
   skillOptionsEnabled,
   withSkillCatalog,
 } from "../skills.js"
-import { builtInTaskTools } from "../tasks.js"
+import { createSpawnSubagentTool } from "../subagents.js"
+import { builtInTaskTools, type SessionTaskServices } from "../tasks.js"
 import type { Tool } from "../tools.js"
 import type { InvocationState } from "./state.js"
 
@@ -41,6 +42,7 @@ interface PrepareDeps {
   reasoningEffort?: ReasoningEffort
   skills?: SkillOptions | false
   tasks?: boolean
+  subagents?: boolean
 }
 
 interface PrepareOptions {
@@ -56,12 +58,15 @@ export async function preparePrompt(
   userText: string | undefined,
   deps: PrepareDeps,
   options: PrepareOptions,
+  taskServices?: SessionTaskServices,
 ): Promise<PreparedPrompt> {
   const baseSystem = deps.systemPrompt
   const skillConfig = deps.skills === false ? undefined : deps.skills
   const tasksEnabled = deps.tasks !== false
+  const subagentsEnabled =
+    deps.subagents !== false && taskServices?.executors.has("delegated") === true
   let system = baseSystem
-  let tools = tasksEnabled ? withBuiltInTaskTools(deps.tools) : deps.tools
+  let tools = applyBuiltIns(deps.tools, { tasksEnabled, subagentsEnabled, taskServices })
 
   if (skillOptionsEnabled(deps.skills)) {
     const discoveredSkills = await discoverSkills(skillConfig?.root)
@@ -80,7 +85,7 @@ export async function preparePrompt(
         }),
         ...deps.tools.filter((tool) => tool.name !== "load_skill"),
       ]
-      tools = tasksEnabled ? withBuiltInTaskTools(skillTools) : skillTools
+      tools = applyBuiltIns(skillTools, { tasksEnabled, subagentsEnabled, taskServices })
     }
   }
 
@@ -104,7 +109,21 @@ export async function preparePrompt(
   }
 }
 
-function withBuiltInTaskTools(tools: Tool[]): Tool[] {
+function applyBuiltIns(
+  tools: Tool[],
+  flags: { tasksEnabled: boolean; subagentsEnabled: boolean; taskServices?: SessionTaskServices },
+): Tool[] {
   const overrides = new Set(tools.map((tool) => tool.name))
-  return [...tools, ...builtInTaskTools.filter((tool) => !overrides.has(tool.name))]
+  let next = tools
+  if (flags.tasksEnabled) {
+    next = [...next, ...builtInTaskTools.filter((tool) => !overrides.has(tool.name))]
+  }
+  if (
+    flags.subagentsEnabled &&
+    flags.taskServices !== undefined &&
+    !overrides.has("spawn_subagent")
+  ) {
+    next = [...next, createSpawnSubagentTool(flags.taskServices)]
+  }
+  return next
 }
