@@ -32,3 +32,11 @@ Index:
   from the background-tasks work merged in #18. Plan 004 (background
   tasks) was implemented directly in that PR's commits rather than
   landing as a separate plans/ file — see #18 for the design history.
+- `006-artifacts.md` — plan for a session-scoped artifact storage primitive
+  in `.leharness/sessions/<id>/artifacts/`. The harness auto-artifacts any
+  tool result (or background task completion) over 8KB, writes the content
+  to disk, and replaces the in-context value with a short stub + the
+  `artifact_id`. A built-in `read_artifact` tool fetches full content or a
+  paginated slice. Foundation for the next plan (smart compaction). The
+  same PR also renames `packages/harness/src/harness/` →
+  `packages/harness/src/core/`.
