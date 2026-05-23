@@ -102,7 +102,7 @@ export function createSubagentExecutor(deps: {
   queue: MessageQueue
   registry: TaskRegistry
   defaults: SubagentDefaults
-  runInvocation: typeof import("./harness/invocation.js").runInvocation
+  runInvocation: typeof import("./core/invocation.js").runInvocation
   services: SessionTaskServices
 }): SubagentExecutor {
   const records = new Map<string, SubagentTaskRecord>()
@@ -255,7 +255,7 @@ export function createSubagentExecutor(deps: {
 export function enableSubagentRuntime(
   services: SessionTaskServices,
   defaults: SubagentDefaults,
-  runInvocation: typeof import("./harness/invocation.js").runInvocation,
+  runInvocation: typeof import("./core/invocation.js").runInvocation,
 ): SubagentExecutor {
   const existing = services.executors.get("delegated")
   if (existing !== undefined) return existing as SubagentExecutor
