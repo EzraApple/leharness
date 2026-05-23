@@ -7,6 +7,7 @@
 // Returns both the projected PromptInput and the final tool list so the loop
 // can pass the same list to executeTools.
 
+import { readArtifactTool } from "../artifacts.js"
 import type { Event } from "../events.js"
 import type { ReasoningEffort } from "../models.js"
 import type { CompactionOptions, PromptInput } from "../prompt.js"
@@ -111,12 +112,19 @@ export async function preparePrompt(
 
 function applyBuiltIns(
   tools: Tool[],
-  flags: { tasksEnabled: boolean; subagentsEnabled: boolean; taskServices?: SessionTaskServices },
+  flags: {
+    tasksEnabled: boolean
+    subagentsEnabled: boolean
+    taskServices?: SessionTaskServices
+  },
 ): Tool[] {
   const overrides = new Set(tools.map((tool) => tool.name))
   let next = tools
   if (flags.tasksEnabled) {
     next = [...next, ...builtInTaskTools.filter((tool) => !overrides.has(tool.name))]
+  }
+  if (!overrides.has("read_artifact")) {
+    next = [...next, readArtifactTool]
   }
   if (
     flags.subagentsEnabled &&

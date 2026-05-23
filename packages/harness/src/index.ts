@@ -4,9 +4,10 @@
 // through this single entry point so the package's directory layout can
 // change without breaking apps.
 
+export * from "./artifacts.js"
 export * from "./compaction/index.js"
+export * from "./core/index.js"
 export * from "./events.js"
-export * from "./harness/index.js"
 export * from "./models.js"
 export * from "./prompt.js"
 export * from "./provider/deepseek.js"

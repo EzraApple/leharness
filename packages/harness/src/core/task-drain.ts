@@ -4,9 +4,12 @@
 //   drainTaskQueue   — at the top of every step, pull any Messages that
 //                      background executors have posted since the last drain
 //                      and append them as task.* events with their original
-//                      occurredAt timestamps. This is the only place outside
-//                      the loop itself that records task.* terminal events,
-//                      preserving the single-writer rule.
+//                      occurredAt timestamps. Large result/error strings get
+//                      auto-artifacted before the event is recorded so
+//                      verbose long-running tasks don't bloat context.
+//                      This is the only place outside the loop itself that
+//                      records task.* terminal events, preserving the
+//                      single-writer rule.
 //
 //   reapOrphanTasks  — runs once per invocation startup. Finds task.started
 //                      events with no matching terminal in the log and no
@@ -16,8 +19,10 @@
 //                      "process_exited") so the log stays internally
 //                      consistent across restarts.
 
+import { AUTO_ARTIFACT_THRESHOLD_BYTES, formatArtifactStub, writeArtifact } from "../artifacts.js"
 import type { Event } from "../events.js"
 import type { Message, SessionTaskServices } from "../tasks.js"
+import { truncateOutput } from "../tools.js"
 import type { InvocationState } from "./state.js"
 
 export async function drainTaskQueue(
@@ -25,7 +30,8 @@ export async function drainTaskQueue(
   services: SessionTaskServices,
 ): Promise<void> {
   for (const message of services.queue.drain()) {
-    await invocation.recordEvent(message.kind, messagePayload(message))
+    const payload = await materializeMessage(invocation, message)
+    await invocation.recordEvent(message.kind, payload)
   }
 }
 
@@ -61,21 +67,32 @@ export async function reapOrphanTasks(
   }
 }
 
-function messagePayload(message: Message): Record<string, unknown> {
+async function materializeMessage(
+  invocation: InvocationState,
+  message: Message,
+): Promise<Record<string, unknown>> {
   if (message.kind === "task.completed") {
+    const rendered = await renderLarge(invocation, message.result, {
+      sourceTaskId: message.taskId,
+    })
     return {
       taskId: message.taskId,
-      result: message.result,
+      result: rendered.value,
       summary: message.summary,
       ts: message.occurredAt,
+      ...(rendered.artifactId === undefined ? {} : { artifactId: rendered.artifactId }),
     }
   }
   if (message.kind === "task.failed") {
+    const rendered = await renderLarge(invocation, message.error, {
+      sourceTaskId: message.taskId,
+    })
     return {
       taskId: message.taskId,
-      error: message.error,
+      error: rendered.value,
       summary: message.summary,
       ts: message.occurredAt,
+      ...(rendered.artifactId === undefined ? {} : { artifactId: rendered.artifactId }),
     }
   }
   return {
@@ -84,6 +101,28 @@ function messagePayload(message: Message): Record<string, unknown> {
     summary: message.summary,
     ts: message.occurredAt,
   }
+}
+
+async function renderLarge(
+  invocation: InvocationState,
+  rawValue: string,
+  meta: { sourceTaskId?: string },
+): Promise<{ value: string; artifactId: string | undefined }> {
+  if (Buffer.byteLength(rawValue, "utf8") > AUTO_ARTIFACT_THRESHOLD_BYTES) {
+    const artifact = await writeArtifact(invocation.sessionId, rawValue, {
+      mime: "text/plain",
+      sourceTaskId: meta.sourceTaskId,
+    })
+    await invocation.recordEvent("artifact.created", {
+      id: artifact.id,
+      sessionId: artifact.sessionId,
+      byteCount: artifact.byteCount,
+      mime: artifact.mime,
+      sourceTaskId: meta.sourceTaskId,
+    })
+    return { value: formatArtifactStub(artifact, rawValue), artifactId: artifact.id }
+  }
+  return { value: truncateOutput(rawValue), artifactId: undefined }
 }
 
 function readEventTaskId(event: Event): string | undefined {
