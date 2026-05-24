@@ -111,8 +111,9 @@ projection free.
 | Area | Decision |
 | ---- | -------- |
 | Strategy name | `pressure_gradient` (replaces `naive_truncate` as the default; naive stays exported for the smokes that exercise the floor). |
-| Budget basis | Char count (proxy for tokens). Default budget = `0.85 × modelContextWindowTokens × 4 chars/token`. App can override via `CompactionOptions.maxInputChars`. Char-count is the *decision* basis for compaction (cheap, predictable, no tokenizer deps). |
-| Indicator basis | Real tokens from the last `model.completed.usage.promptTokens` for the TUI footer indicator. The harness already normalizes provider-specific token-count fields (`prompt_tokens`, `input_tokens`, `prompt_eval_count`) into `{ promptTokens, completionTokens }` in `ProviderResponse.usage` (see `provider/openai-compat.ts`). The `model.completed` event already carries that payload; the TUI just needs to read it. Compaction makes decisions on char-count chars but the user sees real tokens. The two track each other; long-term we can calibrate the chars→tokens multiplier per-session from observed ratios. |
+| Budget basis | **Real tokens from `model.completed.usage.promptTokens`** on the most recent step. The harness already normalizes provider-specific token-count fields (`prompt_tokens`, `input_tokens`, `prompt_eval_count`) into `{ promptTokens, completionTokens }` on `ProviderResponse.usage` (see `provider/openai-compat.ts`); the `model.completed` event carries that payload. Default budget = `0.85 × contextWindowTokensForModel(deps.model, deps.provider.name)`. App can override via `CompactionOptions.maxInputTokens`. |
+| Source-of-truth + storage | Token usage flows through the existing event log. On session startup `loadEvents` rehydrates the JSONL; the TUI's transcript reducer walks events and the latest `model.completed.usage.promptTokens` becomes the current `contextUsage.used`. During a running session each new `model.completed` updates it via the same reducer path. **No new state to manage** — the event-sourced architecture handles persistence + in-memory tracking for free. |
+| First-step handling | The very first model call has no prior `usage` data. Indicator stays hidden ("—") until the first `model.completed` arrives; compaction is a no-op for that step (history is empty anyway, so compaction wouldn't fire). One-step reactive lag is acceptable since the first step almost never hits budget. |
 | Watermarks (% of budget) | 50% drop old reasoning, 65% promote oversized inline tool results to artifacts, 75% drop old tool result bodies, 85% summarize one window, 95% summarize next, 100%+ hard truncate. **Cumulative — once crossed, the transformation applies.** |
 | Preserve-recent | Last K=2 turns (one turn = one user message + agent's response chain through to next user message) are exempt from drop/promote/summarize tiers; only hard truncate may touch them. |
 | Artifact promotion threshold | Inline tool results > 1KB get promoted when the 65% watermark is crossed. Reuses `writeArtifact` from plan 006. |
@@ -125,19 +126,42 @@ projection free.
 | Summary message role | `user` (clear semantics: "here's context about what came before"). Header makes it self-identifying. |
 | Where summary slots in | Same chronological position as the events it replaces. Multiple summaries stack in order. |
 | Compaction event surfacing in TUI | **Cheap tiers (1-3) silent.** **Summarization tier shows an opaque loading state in the footer ("compacting earlier turns…")**, then a transient post-compaction note in transcript: "compacted 12 old turns → 320 chars (saved 8.4k)." Context indicator always visible: `"32k / 435k (7%)"`. |
-| Event-log measurement | Sum of `JSON.stringify(messages).length + system.length + JSON.stringify(tools).length + model.length`. Same `measure()` shape as today. |
+| Pressure measurement | `pressureRatio = lastInputTokens / budgetTokens` where `lastInputTokens` is the most recent `model.completed.usage.promptTokens` in the event log. Reactive (lagged by one step), but accurate — uses what the provider actually counted, not a char proxy. |
+| Post-compaction "saved X tokens" | Reported on the next step's `model.completed` (since that's the first time we see the post-compaction prompt size). Transient cell shows "compacted N old turns" immediately; updates to "saved X tokens" once the follow-up step lands. |
 
 ## Watermarks in detail
 
-Pressure ratio measured once after the initial projection:
-`pressureRatio = projectedSizeChars / budget`. Budget defaults to
-`0.85 × contextWindowTokensForModel(deps.model, deps.provider.name) ×
-4 chars/token` unless the app supplies `compaction.maxInputChars`.
+Pressure ratio is read from the event log at the top of each step:
+`pressureRatio = lastInputTokens / budgetTokens` where `lastInputTokens`
+is the most recent `model.completed.usage.promptTokens`. Budget defaults
+to `0.85 × contextWindowTokensForModel(deps.model, deps.provider.name)`
+unless the app supplies `compaction.maxInputTokens`.
+
+If no `model.completed` exists yet (very first step of a session), all
+watermarks evaluate false and compaction is a no-op. Compaction is
+reactive — it kicks in based on what the *last* prompt actually weighed,
+not a prediction of what the *next* one will weigh. The lag is one step;
+the worst case is one slightly-over-budget call before compaction
+engages.
 
 All transformations whose watermark `pressureRatio >= watermark` is met
-get applied, in order. Re-measurement only happens between
-summarization passes (since each is a real LLM call) and before the
-final hard-truncate floor.
+get applied in a single pass. **No within-step re-measurement** — we
+can't recompute token cost between tiers without a tokenizer dep, and
+the tokens-from-usage source only updates when the next provider call
+returns. T4 and T5 (the two summarization tiers) fire in parallel via
+`Promise.all` when both watermarks are crossed; we don't conditionally
+skip T5 based on T4's effect.
+
+**T6 (hard truncate) is the one tier with a char-based fallback
+measurement.** Because the provider will reject prompts that exceed
+the context window, T6 needs *some* pre-call estimate to act as a
+safety net. It uses `JSON.stringify(messages).length` + system + tools
+against `contextWindowTokens × 4 × 0.90` as a conservative char
+ceiling: if the projection (post-T1-5) still exceeds that, drop oldest
+non-preserved messages until it fits. This is an explicit local
+inconsistency — T1-5 reason in real tokens, T6 reasons in chars — but
+T6's job is provider-rejection prevention, not pressure management, so
+the unit mismatch is acceptable and called out.
 
 | Watermark | Tier | Transformation | Cost |
 | --------- | ---- | -------------- | ---- |
@@ -146,7 +170,7 @@ final hard-truncate floor.
 | 0.75 | T3 — `drop_old_tool_bodies` | For each `tool.completed` older than last K turns, replace the projected `tool` message content with a short tombstone: `"[tool result dropped — artifact_xxx if needed]"` when an artifact exists, or `"[tool result dropped during compaction]"` if it doesn't. The assistant's `toolCalls` stay intact so the narrative thread doesn't break. | None. |
 | 0.85 | T4 — `summarize_one_window` | Find the oldest unsummarized M-turn window outside preserve-recent. If <2KB original, skip. Otherwise: stash full window as an artifact, fire summarizer call, record `compaction.summary`. Replace projected messages in window with the summary message. | One model call (cached after). |
 | 0.95 | T5 — `summarize_next_window` | Repeat T4 for the next-oldest unsummarized window. | One model call (cached after). |
-| 1.00+ | T6 — `truncate_front` | After all above. Drop oldest non-system messages until size fits budget OR only preserve-recent + system + tools remain. Same logic as today's `naive-truncate`. | None. |
+| 1.00+ | T6 — `truncate_front` | After all above. Char-based safety net (see *Watermarks in detail*): drop oldest non-preserved messages until projected size fits `contextWindowTokens × 4 × 0.90` chars, or only system + tools + preserve-recent remain. Same shape as today's `naive-truncate`. | None. |
 
 ## The summarizer call
 
@@ -246,16 +270,18 @@ If the summarizer call throws or the signal aborts:
   type: "compaction.completed",
   strategy: "pressure_gradient",     // new value (or "naive_truncate" for legacy)
   reason: "input_too_large",
-  budget: number,
-  pressureRatio: number,             // original projection size / budget
-  inputChars: number,
-  outputChars: number,
+  budgetTokens: number,              // contextWindowTokens × 0.85
+  lastInputTokens: number,           // pressure measurement at decision time
+  pressureRatio: number,             // lastInputTokens / budgetTokens
   watermarksCrossed: string[],       // ["drop_old_reasoning", "promote_inline_results", ...]
   droppedReasoningCount?: number,
   promotedInlineCount?: number,
   droppedToolBodyCount?: number,
   summarizedWindowCount?: number,
   truncatedFromFrontCount?: number,
+  // "saved X tokens" lands on the *next* model.completed, not here —
+  // we don't know the post-compaction prompt size in tokens until the
+  // next provider call comes back with usage.promptTokens.
 }
 ```
 
@@ -325,7 +351,8 @@ export function findCoveringSummary(
 ```ts
 // packages/harness/src/prompt.ts — CompactionOptions extends:
 export interface CompactionOptions {
-  maxInputChars?: number
+  maxInputTokens?: number            // override the default budget (contextWindow × 0.85)
+  maxInputChars?: number             // legacy, only used by naive-truncate and the T6 safety net
   preserveRecentTurns?: number       // renamed from preserveRecentMessages — turn-based is clearer
   summarizerModel?: string           // optional override; defaults to main model
 }
@@ -375,11 +402,11 @@ locals as documented per-model).
 | `packages/harness/src/compaction/index.ts` | Default `compact` dispatches to `pressureGradient`. Keep `naiveTruncate` exported for smokes that test the floor in isolation. |
 | `packages/harness/src/prompt.ts` | Extend `CompactionOptions` (add `preserveRecentTurns`, `summarizerModel`; deprecate `preserveRecentMessages`); extend `eventToMessage` to consult the summary cache and emit synthetic summary messages; teach it to drop `reasoningText` per-event when flagged. |
 | `packages/harness/src/models.ts` | Add optional `contextWindowTokens` field to `ModelSpec`; add `contextWindowTokensForModel(id, provider)` helper (matches existing `modelSupportsReasoning` shape); populate the field on `BUILTIN_MODELS` entries. |
-| `packages/harness/src/core/prepare-prompt.ts` | When app didn't supply `compaction.maxInputChars`, compute default from `contextWindowTokensForModel(deps.model, deps.provider.name)` × 4 chars/token × 0.85. |
+| `packages/harness/src/core/prepare-prompt.ts` | When app didn't supply `compaction.maxInputTokens`, compute default from `contextWindowTokensForModel(deps.model, deps.provider.name) × 0.85`. |
 | `apps/cli/src/cli.ts` | No change required — defaults flow through `prepare-prompt.ts`. |
 | `apps/tui/src/state/types.ts` | Add `compactionInProgress: boolean`, `lastCompactionGains?: { savedChars, summarizedCount }`, `contextUsage?: { used, budget }`. |
-| `apps/tui/src/state/transcript.ts` | Reduce `compaction.completed` → update `lastCompactionGains` + `contextUsage`; reduce `compaction.summary` (start) / `compaction.summary.failed` to toggle `compactionInProgress`; reduce `model.completed` → update `contextUsage.used` from `usage.promptTokens` when present. Update `cloneTranscript` to copy the new fields. |
-| `apps/tui/src/components/prompt.tsx` | Extend the existing `Footer` component (currently lives here, not a separate file) to render `"[compacting...]"` when `compactionInProgress` and `"32k / 1M (3%)"` from `contextUsage`. Thread the new state from `app.tsx`'s transcript via props. |
+| `apps/tui/src/state/transcript.ts` | Reduce `model.completed` → set `contextUsage = { used: usage.promptTokens, budget }` when `usage` is present (this is the single source of truth — works on resume from `loadEvents` and during live sessions identically). Reduce `compaction.completed` → set `lastCompactionGains.savedTokens` once the *next* `model.completed` arrives (compare new `promptTokens` to the pre-compaction value). Reduce `compaction.summary` (start) / `compaction.summary.failed` → toggle `compactionInProgress`. Update `cloneTranscript` to copy the new fields. |
+| `apps/tui/src/components/prompt.tsx` | Extend the existing `Footer` component (currently lives here, not a separate file) to render `"[compacting...]"` when `compactionInProgress` and `"32k / 850k (4%)"` (real tokens) from `contextUsage`. **Hide the indicator entirely when `contextUsage` is undefined** (first step of a session, no `usage` data yet). Thread state from `app.tsx`'s transcript via props. |
 | `apps/tui/src/components/transcript.tsx` | Transient one-line cell after `compaction.completed`: `"compacted X old turns → Y chars saved"`. |
 | `packages/harness/scripts/smoke/compaction.mjs` | Rewrite for pressure-gradient: drive each tier individually with a scripted provider that returns canned summaries. Smoke runner auto-discovers `*.mjs` under `scripts/smoke/`, so additional cases land naturally as `compaction-cache.mjs`, `compaction-floor.mjs`, etc. |
 | `apps/cli/scripts/smoke-compaction-summary.ts` *(new)* | End-to-end: real `compaction.summary` events land, cache is consulted on second invocation (no second summarizer call), event log retains originals, summary message has the correct framing. Add to `smoke:apps` in root `package.json`. |
@@ -470,7 +497,8 @@ Ruled out for this plan:
 
 - Vector retrieval / semantic search over old turns. Future plan.
 - Hierarchical summaries (summaries of summaries). Single level only.
-- Token-accurate budgets via tiktoken-style libs. Char-count proxy.
+- Predictive token measurement (would need a tokenizer dep). v1 is
+  reactive — reads `usage.promptTokens` from the last `model.completed`.
 - A dedicated cheaper summarizer model. v1 reuses the session's main
   model; `summarizerModel?` config exists but defaults to main.
 - Per-app watermark overrides as a primary mode. Single config schema;
@@ -482,11 +510,14 @@ Ruled out for this plan:
 Left open and additive:
 
 - Smaller/cheaper `summarizerModel` config (DeepSeek-mini, Haiku).
-- Token-accurate budgeting via a client-side tokenizer (the indicator
-  already shows real tokens from the provider's `usage` payload; this
-  would let *decisions* also use real tokens instead of the char proxy).
-- Per-session chars→tokens calibration that tightens the budget
-  multiplier from observed ratios over the session's lifetime.
+- Client-side tokenizer for **T6's safety-net measurement** so the
+  whole pipeline reasons in tokens end-to-end (T1-5 already do; T6
+  falls back to chars because it has to estimate post-projection size
+  before the next call).
+- **Predictive (vs. reactive) pressure measurement** — the same
+  tokenizer would let us pre-compute the next prompt's token cost
+  instead of relying on the last completed step's `usage.promptTokens`.
+  Removes the one-step lag at the cost of a tokenizer dep.
 - **Background prefetch summarization** — after a step completes, if
   pressure is approaching 85%, spawn the summarizer as a background
   task (reusing the `MessageQueue` / `TaskExecutor` infrastructure from
