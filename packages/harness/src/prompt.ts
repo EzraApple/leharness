@@ -32,8 +32,23 @@ export interface BuildPromptOptions {
 }
 
 export interface CompactionOptions {
+  // Budget in real tokens. Default is contextWindowTokensForModel × 0.85
+  // computed in core/prepare-prompt.ts when the app doesn't supply one.
+  // Reactive: pressure is measured against the last model.completed's
+  // usage.promptTokens, so this is the threshold that triggers tiered
+  // transformations on the *next* step's prompt.
+  maxInputTokens?: number
+  // T6's char-based safety net (see plan 007). Only the truncate-front
+  // tier reads this; T1-5 reason in tokens. Default is contextWindowTokens
+  // × 4 chars/token × 0.90 when unset.
   maxInputChars?: number
-  preserveRecentMessages?: number
+  // How many recent turns are exempt from T1-T5 (only T6 may touch them).
+  // A turn = one user message + the agent's response chain through to
+  // the next user message. Default 2.
+  preserveRecentTurns?: number
+  // Optional override for the summarizer model. Defaults to the main
+  // session's model (deps.model).
+  summarizerModel?: string
 }
 
 export interface PromptInput extends BuildPromptOptions {
@@ -106,7 +121,7 @@ export function buildRequest(input: PromptInput): ProviderRequest {
   }
 }
 
-function eventToMessage(event: Event): HarnessMessage | null {
+export function eventToMessage(event: Event): HarnessMessage | null {
   switch (event.type) {
     case "invocation.received":
       return { role: "user", content: event.text as string }
