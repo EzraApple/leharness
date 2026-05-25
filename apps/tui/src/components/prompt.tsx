@@ -169,10 +169,14 @@ function colorAt(index: number, ranges: MentionRange[]): string | undefined {
 }
 
 export function Footer({
+  compactionInProgress,
+  contextUsage,
   queuedCount,
   running,
   status,
 }: {
+  compactionInProgress?: boolean
+  contextUsage?: { tokens: number; budget: number }
   queuedCount: number
   running: boolean
   status: string
@@ -186,9 +190,13 @@ export function Footer({
           ? "empty enter send queued"
           : "enter send"
   const elapsed = useElapsedRunTime(running)
-  const statusParts = [status === "idle" ? undefined : status, elapsed].filter(
-    (part): part is string => part !== undefined && part.length > 0,
-  )
+  const usageLabel = formatContextUsage(contextUsage)
+  const statusParts = [
+    status === "idle" ? undefined : status,
+    elapsed,
+    compactionInProgress ? "compacting…" : undefined,
+    usageLabel,
+  ].filter((part): part is string => part !== undefined && part.length > 0)
 
   return (
     <Box justifyContent="space-between">
@@ -199,6 +207,20 @@ export function Footer({
       </Text>
     </Box>
   )
+}
+
+function formatContextUsage(usage?: { tokens: number; budget: number }): string | undefined {
+  if (usage === undefined || usage.tokens <= 0) return undefined
+  const used = formatTokenCount(usage.tokens)
+  if (usage.budget <= 0) return `${used} ctx`
+  const pct = Math.round((usage.tokens / usage.budget) * 100)
+  return `${used} / ${formatTokenCount(usage.budget)} (${pct}%)`
+}
+
+function formatTokenCount(tokens: number): string {
+  if (tokens >= 1_000_000) return `${Math.round(tokens / 100_000) / 10}M`
+  if (tokens >= 1_000) return `${Math.round(tokens / 100) / 10}k`
+  return String(tokens)
 }
 
 function useElapsedRunTime(running: boolean): string | undefined {
