@@ -91,6 +91,7 @@ export async function main(argv: string[]): Promise<number> {
     tools: builtinTools,
     model: runtime.model,
     reasoningEffort: runtime.reasoningEffort,
+    compaction: resolveCompactionConfig(),
   }
   const sessionId = args.sessionId ?? ulid()
   const services = getOrCreateTaskServices(sessionId)
@@ -155,6 +156,18 @@ function registerSampleSubagents(services: ReturnType<typeof getOrCreateTaskServ
       "You are a planning assistant. You have read_file and bash (for ls, grep, rg, git, etc.) — you do not have edit or create tools. Your job is to read the relevant code and produce a concrete, step-ordered implementation plan. Return the plan as your final message; the parent agent will execute or hand it off.",
     tools: [readFileTool, bashTool],
   })
+}
+
+// Tiny CLI-layer hook into compaction config so a user (or smoke
+// session) can force smaller budgets for testing without code edits.
+// The harness owns the default budget (context-window-aware in
+// core/prepare-prompt.ts); this lets the app override.
+function resolveCompactionConfig(): HarnessDeps["compaction"] {
+  const raw = process.env.LEHARNESS_MAX_INPUT_TOKENS
+  if (raw === undefined || raw.length === 0) return undefined
+  const parsed = Number.parseInt(raw, 10)
+  if (!Number.isFinite(parsed) || parsed <= 0) return undefined
+  return { maxInputTokens: parsed }
 }
 
 function resolveRuntime(
