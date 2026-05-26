@@ -22,11 +22,12 @@ import {
   renderTurnsForSummarizer,
 } from "./turns.js"
 
-// Summary target is 400-900 chars (~150-300 tokens), but for reasoning
-// models the budget also covers thinking tokens, so we ask for headroom.
-// At 1500 we comfortably fit a ~900-char visible output plus any
-// reasoning the model emits.
-const SUMMARIZER_MAX_OUTPUT_TOKENS = 1500
+// Summary target is 400-900 chars (~100-240 tokens). Cap is a safety
+// ceiling, not a target — the prompt tells the model the char budget.
+// 800 tokens is ~3x headroom over the longest brief we've observed in
+// live testing; the summarizer call is forced to reasoningEffort:"off"
+// so we don't need to budget for thinking tokens.
+const SUMMARIZER_MAX_OUTPUT_TOKENS = 800
 // Don't summarize windows smaller than this — the summary costs more than
 // the original would.
 const SUMMARIZE_MIN_WINDOW_CHARS = 2 * 1024
