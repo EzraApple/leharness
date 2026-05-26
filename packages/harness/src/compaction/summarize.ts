@@ -22,9 +22,11 @@ import {
   renderTurnsForSummarizer,
 } from "./turns.js"
 
-// At most ~600 chars of summary per the plan; pad allowance because the
-// model occasionally overshoots.
-const SUMMARIZER_MAX_OUTPUT_TOKENS = 600
+// Summary target is 400-900 chars (~150-300 tokens), but for reasoning
+// models the budget also covers thinking tokens, so we ask for headroom.
+// At 1500 we comfortably fit a ~900-char visible output plus any
+// reasoning the model emits.
+const SUMMARIZER_MAX_OUTPUT_TOKENS = 1500
 // Don't summarize windows smaller than this — the summary costs more than
 // the original would.
 const SUMMARIZE_MIN_WINDOW_CHARS = 2 * 1024
@@ -66,6 +68,11 @@ export async function summarizeWindow(args: SummarizeArgs): Promise<SummarizeOut
       system: SUMMARIZER_SYSTEM,
       messages: [{ role: "user", content: prompt }],
       maxOutputTokens: SUMMARIZER_MAX_OUTPUT_TOKENS,
+      // Summarization is structured low-ambiguity work; reasoning
+      // tokens eat into maxOutputTokens and cause mid-sentence
+      // truncation. Force reasoning off so the full visible budget
+      // goes to the brief itself.
+      reasoningEffort: "off",
       signal: args.signal,
     })
     const summaryText = response.text.trim()
@@ -141,18 +148,23 @@ function buildSummarizerPrompt(renderedWindow: string): string {
     "",
     renderedWindow,
     "",
-    "Produce a concise brief with this structure:",
+    "Produce a brief with this structure:",
     "",
     "- **Goal:** what the user appears to be working toward",
     "- **Touched:** files, concepts, or systems already engaged",
     "- **Decisions:** approaches chosen, constraints established",
     "- **Findings:** notable results, errors hit, dead ends",
-    "- **Next:** what was about to happen when this window closes",
     "",
-    "Length scales with source density: aim for roughly 5% of source length in",
-    "characters, capped at ~600 chars. A light window (one or two short turns of",
-    "trivial work) may need only 1-2 sentences total. Omit any field that has",
-    "nothing meaningful to report — don't pad. Do not include exact quotes or data",
-    "dumps; the originals are recoverable via the artifact reference.",
+    "Rules:",
+    "- **Goal** is required. Omit any of the others only when the window genuinely",
+    "  has nothing to report for them.",
+    "- Aim for 400–900 characters total. A light window (one or two short turns of",
+    "  trivial work) may need only 1–2 sentences. **Always finish the sentence you are",
+    "  writing** — never stop mid-clause or mid-list. Do not begin a field you cannot",
+    "  finish within the length budget.",
+    "- Do NOT speculate about what comes next or what the user might do — you only",
+    "  see the window itself, not the future. Stay in past/present tense.",
+    "- Do not include exact quotes or data dumps; originals are recoverable via the",
+    "  artifact reference.",
   ].join("\n")
 }
