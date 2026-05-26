@@ -11,19 +11,22 @@ into "does the agent complete real tasks?"
 
 Two deliverables:
 
-1. **Publish `leharness@0.3.0` to npm** with everything since the
-   stale `0.2.1`: background tasks, subagents, artifacts, smart
-   compaction, file-edit tools. So `npm install -g leharness` actually
-   gives a current agent.
-2. **Ship a `leharness-tb-adapter` Python package** that extends
-   Harbor's `BaseInstalledAgent` — Harbor handles sandbox + tmux + task
-   verification; the adapter just teaches Harbor how to install + drive
-   `lh` inside the sandbox.
+1. **Publish `leharness@0.3.0` to npm** ✅ — done. v0.3.0 is live with
+   background tasks, subagents, artifacts, smart compaction, file-edit
+   tools.
+2. **Add `evals/terminal_bench/` to this repo** — a small Python
+   adapter (one agent.py + requirements.txt + README) extending
+   Harbor's `BaseInstalledAgent`. No sibling repo, no PyPI publish.
+   Adapter version = whatever leharness commit it's on. Anyone who
+   wants to reproduce a run clones leharness and `cd evals/terminal_bench`.
 
 This plan deliberately does not cover:
 
 - Building a custom benchmark — Terminal-Bench is the standard; we use
   what exists.
+- Publishing the adapter to PyPI — for a baseline-number eval that's
+  primarily for the harness developer, monorepo-subdirectory is enough.
+  Promote to a separate package if it ever becomes load-bearing.
 - Publishing to the public leaderboard — that's a follow-up once the
   numbers are stable. v1 is private/internal.
 - Multi-model scoring (Claude vs DeepSeek vs Ollama) — start with one,
@@ -92,8 +95,9 @@ to its CLI with the task description. No deeper integration.
 
 | Area | Decision |
 | ---- | -------- |
-| Adapter language | Python — Harbor is Python; the adapter must extend `BaseInstalledAgent`. Adapter lives in a sibling repo (`leharness-tb-adapter`) to keep leharness's TS-only build clean. |
-| Agent install | `npm install -g leharness@<pinned>` inside the sandbox during `install()`. Pin version per adapter release so eval runs are reproducible. |
+| Adapter location | `evals/terminal_bench/` directory inside this repo. Python sits next to TS; small enough that mixing build tooling isn't a real cost. No sibling repo, no PyPI. |
+| Adapter language | Python — Harbor is Python; the adapter must extend `BaseInstalledAgent`. |
+| Agent install | `npm install -g leharness@<pinned>` inside the sandbox during `install()`. Pinned constant in `agent.py` — bump explicitly when re-running against a new leharness release. |
 | Agent invocation | `lh "<task_description>"` in one-shot mode. `lh` already supports this (see `apps/cli/src/cli.ts:one_shot`). |
 | Provider for first run | DeepSeek-v4-flash. Cheap, fast, has reasoning, already wired and validated in plans 001–007. Swap to Claude Sonnet or GPT-4o once baseline is established. |
 | Sandbox provider | Daytona for the real runs. Local Docker for `hello-world` smoke. |
@@ -102,7 +106,7 @@ to its CLI with the task description. No deeper integration.
 | Cost budget | Aim for <$30 for the first full run. DeepSeek-flash + Daytona compute. Hard ceiling $50; abort if blown. |
 | Token-counting source | Pull `usage.promptTokens`/`completionTokens` from the session's `events.jsonl` (final `model.completed`) via `populate_context_post_run`. Already accurate per plan 007's reactive token model. |
 | Failure mode | If `lh` errors, exits non-zero, or runs past Harbor's max-turn budget, report it as a task failure with the error in the `AgentResult.failure_mode`. No special handling; just don't crash the harness. |
-| Result attribution | Adapter pins to a specific leharness version. Publish `leharness-tb-adapter@<x>` mapped to `leharness@<y>` so an eval result is reproducible from the two version strings. |
+| Result attribution | Adapter pins a specific `leharness@<version>` constant in `agent.py`; eval result is reproducible from "leharness commit hash + pinned npm version." |
 
 ## Adapter shape
 
@@ -182,47 +186,35 @@ accept it as-is.
 
 ## Phased rollout
 
-### Phase 1 — Publish `leharness@0.3.0` to npm
+### Phase 1 — Publish `leharness@0.3.0` to npm ✅ DONE
 
-This is mostly mechanical given plan 002's existing scaffolding.
+Landed via PR #24. Verified clean-container install end-to-end against
+DeepSeek. `v0.3.0` tagged. Brought all of plans 004–007 (background
+tasks, subagents, artifacts, file edit tools, smart compaction) into
+the npm channel.
 
-1. Merge plan 007 to main first (smart compaction is the headline
-   feature of this release; not shipping it is a wasted release).
-2. Bump `version` in the package roots to `0.3.0`.
-3. Run `pnpm package:verify` — runs `package:prepare` (builds + writes
-   `dist/npm/leharness`) then `package:pack` then verifies the tarball
-   installs and `lh --help` works. If this passes, the package is
-   shippable.
-4. `cd dist/npm/leharness && npm publish --access public`.
-5. Smoke install on a clean machine (or `docker run -it node:20 bash`)
-   to verify `npm install -g leharness@0.3.0 && lh --help`.
-6. Tag `v0.3.0` in git; write a CHANGELOG entry covering plans 004–007.
-
-This is its own PR. The adapter work depends on it; this lands first.
-
-### Phase 2 — Create `leharness-tb-adapter` (Python package)
-
-A separate sibling repo `leharness-tb-adapter`:
+### Phase 2 — Add `evals/terminal_bench/` to this repo
 
 ```
-leharness-tb-adapter/
-├── pyproject.toml
-├── README.md
-├── leharness_tb_adapter/
-│   ├── __init__.py
-│   └── agent.py          # LeharnessAgent class (see "Adapter shape")
-└── tests/
-    └── test_smoke.py     # offline tests: token-count parsing, session-id quoting
+leharness/
+└── evals/
+    └── terminal_bench/
+        ├── README.md             # install + run examples
+        ├── requirements.txt      # harbor-framework, terminal-bench, pytest
+        ├── agent.py              # LeharnessAgent class (see "Adapter shape")
+        └── tests/
+            ├── test_quoting.py   # shell-quote helper
+            └── test_usage_parse.py # events.jsonl → token counts
 ```
 
-Pin `harbor-framework`, `terminal-bench` as dependencies in
-`pyproject.toml`. Publish to PyPI as `leharness-tb-adapter@0.1.0`
-mapped to `leharness@0.3.0`.
+No PyPI publish. `.gitignore` for `__pycache__/` + `.venv/` in the
+subdirectory. The TS build pipeline ignores `evals/` (already does —
+it's not part of any pnpm workspace package).
 
-Lives outside the leharness monorepo because mixing Python build
-tooling into the TS workspace adds permanent friction (separate
-linters, separate CI, separate publish workflow) for a 1-file adapter.
-Cross-repo coupling is just the pinned version constant.
+Cross-language friction is minimal: `evals/terminal_bench/` has its
+own `requirements.txt` and tests; root `package.json` doesn't know it
+exists. Reproducibility is "this leharness commit + the pinned
+`LEHARNESS_VERSION` constant in agent.py."
 
 ### Phase 3 — `hello-world` validation
 
