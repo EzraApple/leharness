@@ -384,4 +384,139 @@ state = appendCell(initialTranscript(), {
 assert.equal(state.cells[0]?.kind, "system")
 assert.equal(state.cells[0]?.title, "model")
 
-console.log("smoke-transcript: transient thinking, tool display, preparation, and read grouping ok")
+// Smart-compaction reducer cases (plan 007).
+
+// model.completed with usage.promptTokens updates contextUsage.
+state = initialTranscript()
+state = reduceEvent(state, {
+  id: "ev-usage",
+  text: "answer",
+  reasoningText: undefined,
+  toolCalls: [],
+  ts: "2026-05-23T00:00:00.000Z",
+  type: "model.completed",
+  usage: { promptTokens: 4200, completionTokens: 80 },
+  v: 1,
+})
+assert.equal(state.contextUsage?.tokens, 4200, "contextUsage.tokens should mirror promptTokens")
+assert.equal(state.contextUsage?.budget, 0, "budget defaults to 0 until compaction.completed runs")
+
+// compaction.started flips compactionInProgress true.
+state = reduceEvent(state, {
+  id: "ev-cstart",
+  type: "compaction.started",
+  ts: "2026-05-23T00:01:00.000Z",
+  v: 1,
+  phase: "summarizing",
+  windowCount: 1,
+  budgetTokens: 8000,
+  lastInputTokens: 7200,
+  pressureRatio: 0.9,
+})
+assert.equal(state.compactionInProgress, true, "compaction.started should set compactionInProgress")
+
+// compaction.completed flips it back, adds a transient cell, and seeds
+// pending fields for the next model.completed to compute savings.
+const beforeCellsLen = state.cells.length
+state = reduceEvent(state, {
+  id: "ev-ccomp",
+  type: "compaction.completed",
+  ts: "2026-05-23T00:01:01.000Z",
+  v: 1,
+  strategy: "pressure_gradient",
+  reason: "input_too_large",
+  budgetTokens: 8000,
+  lastInputTokens: 7200,
+  pressureRatio: 0.9,
+  watermarksCrossed: ["summarize_one_window"],
+  droppedReasoningCount: 0,
+  promotedInlineCount: 0,
+  droppedToolBodyCount: 0,
+  summarizedWindowCount: 1,
+  truncatedFromFrontCount: 0,
+})
+assert.equal(
+  state.compactionInProgress,
+  false,
+  "compaction.completed should turn off compactionInProgress",
+)
+assert.equal(state.cells.length, beforeCellsLen + 1, "should append one transient compaction cell")
+const compactionCellIndex = state.pendingCompactionCellIndex
+assert.notEqual(compactionCellIndex, undefined, "pending cell index should be set")
+const compactionCell = state.cells[compactionCellIndex]
+assert.equal(compactionCell?.kind, "system")
+assert.equal(compactionCell?.title, "compaction")
+assert.ok(
+  compactionCell?.text.includes("1 summarized"),
+  `expected '1 summarized' in cell, got "${compactionCell?.text}"`,
+)
+assert.equal(
+  state.contextUsage?.budget,
+  8000,
+  "compaction.completed should populate the budget half of contextUsage",
+)
+assert.equal(
+  state.pendingCompactionBaselineTokens,
+  7200,
+  "pending baseline tokens should be the pre-compaction lastInputTokens",
+)
+assert.notEqual(state.pendingCompactionCellIndex, undefined, "pending cell index should be set")
+
+// Next model.completed lands with lower promptTokens → cell is patched
+// with the savings.
+state = reduceEvent(state, {
+  id: "ev-postcompact",
+  text: "answered",
+  reasoningText: undefined,
+  toolCalls: [],
+  ts: "2026-05-23T00:01:05.000Z",
+  type: "model.completed",
+  usage: { promptTokens: 3000, completionTokens: 50 },
+  v: 1,
+})
+assert.equal(state.contextUsage?.tokens, 3000, "contextUsage updates with the new promptTokens")
+assert.equal(state.pendingCompactionCellIndex, undefined, "pending should be cleared after patch")
+assert.equal(state.pendingCompactionBaselineTokens, undefined, "pending baseline cleared")
+const patchedCell = state.cells[compactionCellIndex]
+assert.ok(
+  patchedCell?.text.includes("saved"),
+  `compaction cell should be patched with savings; got "${patchedCell?.text}"`,
+)
+assert.ok(
+  patchedCell.text.includes("4.2k"),
+  `expected savings of 4.2k tokens (7200 - 3000), got "${patchedCell.text}"`,
+)
+
+// compaction.summary.failed turns compactionInProgress off too.
+state = reduceEvent(state, {
+  id: "ev-fail-start",
+  type: "compaction.started",
+  ts: "2026-05-23T00:02:00.000Z",
+  v: 1,
+  phase: "summarizing",
+  windowCount: 1,
+})
+assert.equal(state.compactionInProgress, true)
+state = reduceEvent(state, {
+  id: "ev-fail",
+  type: "compaction.summary.failed",
+  ts: "2026-05-23T00:02:01.000Z",
+  v: 1,
+  attemptedEventIds: ["ev-a", "ev-b"],
+  error: "boom",
+})
+assert.equal(state.compactionInProgress, false, "summary.failed should clear in-progress")
+
+// cloneTranscript (exercised via every reduceEvent) preserves the new fields.
+state = reduceEvent(state, {
+  id: "ev-final",
+  type: "agent.finished",
+  ts: "z",
+  v: 1,
+  reason: "no_tool_calls",
+})
+assert.equal(state.contextUsage?.tokens, 3000, "contextUsage should survive across clones")
+
+console.log(
+  "smoke-transcript: transient thinking, tool display, preparation, read grouping, and compaction ok",
+)

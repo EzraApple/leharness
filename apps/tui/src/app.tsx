@@ -740,7 +740,13 @@ export function TuiApp({
         />
       )}
       {slashActive || pickerActive || helpVisible ? null : (
-        <Footer queuedCount={queuedMessages.length} running={running} status={status} />
+        <Footer
+          compactionInProgress={transcript.compactionInProgress}
+          contextUsage={transcript.contextUsage}
+          queuedCount={queuedMessages.length}
+          running={running}
+          status={status}
+        />
       )}
     </Box>
   )

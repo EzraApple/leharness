@@ -9,7 +9,7 @@
 
 import { readArtifactTool } from "../artifacts.js"
 import type { Event } from "../events.js"
-import type { ReasoningEffort } from "../models.js"
+import { contextWindowTokensForModel, type ReasoningEffort } from "../models.js"
 import type { CompactionOptions, PromptInput } from "../prompt.js"
 import { buildInput } from "../prompt.js"
 import type { Provider, ToolCallDelta } from "../provider/index.js"
@@ -103,10 +103,27 @@ export async function preparePrompt(
       onReasoningText: options.onReasoningText,
       onToolCallDelta: options.onToolCallDelta,
       signal: options.signal,
-      compaction: deps.compaction,
+      compaction: applyCompactionDefaults(deps.compaction, deps),
       recordEvent: invocation.recordEvent,
     }),
     tools,
+  }
+}
+
+// The kernel owns the default budget so apps don't have to think about
+// model context windows. Pressure-gradient consumes maxInputTokens
+// directly; the char ceiling is its T6 safety net only (see plan 007).
+function applyCompactionDefaults(
+  configured: CompactionOptions | undefined,
+  deps: PrepareDeps,
+): CompactionOptions {
+  const contextWindowTokens = contextWindowTokensForModel(deps.model, deps.provider.name)
+  const maxInputTokens = configured?.maxInputTokens ?? Math.floor(contextWindowTokens * 0.85)
+  const maxInputChars = configured?.maxInputChars ?? Math.floor(contextWindowTokens * 4 * 0.9)
+  return {
+    ...configured,
+    maxInputTokens,
+    maxInputChars,
   }
 }
 

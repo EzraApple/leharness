@@ -17,8 +17,12 @@ export function initialTranscript(): TranscriptState {
     activeAssistantIndex: undefined,
     activeTasks: new Map(),
     cells: [],
+    compactionInProgress: false,
+    contextUsage: undefined,
     nextCellId: 0,
     nextReadBatchId: 0,
+    pendingCompactionBaselineTokens: undefined,
+    pendingCompactionCellIndex: undefined,
     readBatchByCallId: new Map(),
     readBatches: new Map(),
     toolCellById: new Map(),
@@ -84,8 +88,12 @@ function cloneTranscript(state: TranscriptState): TranscriptState {
     activeAssistantIndex: state.activeAssistantIndex,
     activeTasks: new Map(state.activeTasks),
     cells: state.cells.map((cell) => ({ ...cell })),
+    compactionInProgress: state.compactionInProgress,
+    contextUsage: state.contextUsage === undefined ? undefined : { ...state.contextUsage },
     nextCellId: state.nextCellId,
     nextReadBatchId: state.nextReadBatchId,
+    pendingCompactionBaselineTokens: state.pendingCompactionBaselineTokens,
+    pendingCompactionCellIndex: state.pendingCompactionCellIndex,
     readBatchByCallId: new Map(state.readBatchByCallId),
     readBatches: new Map(
       [...state.readBatches].map(([key, batch]) => [
@@ -161,7 +169,10 @@ export function reduceEvent(state: TranscriptState, event: Event): TranscriptSta
     case "model.completed":
     case "model.cancelled": {
       commitAssistant(next, event)
-      if (event.type === "model.completed") prepareReadBatches(next, readToolCalls(event.toolCalls))
+      if (event.type === "model.completed") {
+        prepareReadBatches(next, readToolCalls(event.toolCalls))
+        applyModelUsage(next, event)
+      }
       break
     }
     case "tool.started": {
@@ -232,6 +243,15 @@ export function reduceEvent(state: TranscriptState, event: Event): TranscriptSta
       break
     case "task.cancelled":
       handleTaskTerminal(next, event, "cancelled")
+      break
+    case "compaction.started":
+      next.compactionInProgress = true
+      break
+    case "compaction.summary.failed":
+      next.compactionInProgress = false
+      break
+    case "compaction.completed":
+      handleCompactionCompleted(next, event)
       break
   }
   return next
@@ -343,6 +363,87 @@ function readTerminalDetail(event: Event): string | undefined {
   if (error.length > 0) return error
   const result = typeof event.result === "string" ? event.result.trim() : ""
   return result.length > 0 ? result : undefined
+}
+
+// Track real-token usage from the model's response. This is the only
+// signal the TUI has for the "32k / 850k (4%)" footer indicator — see
+// plan 007. The budget piece is set by compaction.completed when it
+// runs; until the first compaction.completed or a manual config, we
+// don't know the budget, so we cache a default of "tokens, undefined
+// budget" and let the footer hide the percentage in that case.
+function applyModelUsage(state: TranscriptState, event: Event): void {
+  const usage = event.usage as { promptTokens?: number } | undefined
+  const tokens = typeof usage?.promptTokens === "number" ? usage.promptTokens : undefined
+  if (tokens === undefined) return
+
+  const existingBudget = state.contextUsage?.budget ?? 0
+  state.contextUsage = { tokens, budget: existingBudget }
+
+  // If a compaction.completed left us with a pending transient cell,
+  // we now know what the post-compaction prompt actually cost in
+  // tokens. Patch the cell with the savings.
+  const pendingIndex = state.pendingCompactionCellIndex
+  const baseline = state.pendingCompactionBaselineTokens
+  if (pendingIndex !== undefined && baseline !== undefined) {
+    const saved = baseline - tokens
+    if (saved > 0) {
+      const cell = state.cells[pendingIndex]
+      if (cell !== undefined) {
+        state.cells[pendingIndex] = {
+          ...cell,
+          text: `${cell.text} · saved ${formatTokens(saved)} tokens`,
+        }
+      }
+    }
+    state.pendingCompactionCellIndex = undefined
+    state.pendingCompactionBaselineTokens = undefined
+  }
+}
+
+function handleCompactionCompleted(state: TranscriptState, event: Event): void {
+  state.compactionInProgress = false
+  const summarizedCount = readNumber(event, "summarizedWindowCount") ?? 0
+  const droppedToolBodies = readNumber(event, "droppedToolBodyCount") ?? 0
+  const promotedInline = readNumber(event, "promotedInlineCount") ?? 0
+  const droppedReasoning = readNumber(event, "droppedReasoningCount") ?? 0
+  const truncatedFromFront = readNumber(event, "truncatedFromFrontCount") ?? 0
+  const budgetTokens = readNumber(event, "budgetTokens")
+  const lastInputTokens = readNumber(event, "lastInputTokens")
+
+  if (budgetTokens !== undefined) {
+    const tokens = state.contextUsage?.tokens ?? lastInputTokens ?? 0
+    state.contextUsage = { tokens, budget: budgetTokens }
+  }
+
+  const parts: string[] = []
+  if (summarizedCount > 0) parts.push(`${summarizedCount} summarized`)
+  if (promotedInline > 0) parts.push(`${promotedInline} promoted`)
+  if (droppedToolBodies > 0) parts.push(`${droppedToolBodies} dropped`)
+  if (droppedReasoning > 0) parts.push(`${droppedReasoning} reasoning trimmed`)
+  if (truncatedFromFront > 0) parts.push(`${truncatedFromFront} truncated`)
+  if (parts.length === 0) return
+
+  const summaryText = `compacted: ${parts.join(" · ")}`
+  const cellIndex = state.cells.length
+  pushCell(state, {
+    kind: "system",
+    text: summaryText,
+    title: "compaction",
+  })
+  if (lastInputTokens !== undefined) {
+    state.pendingCompactionCellIndex = cellIndex
+    state.pendingCompactionBaselineTokens = lastInputTokens
+  }
+}
+
+function readNumber(event: Event, key: string): number | undefined {
+  const value = event[key]
+  return typeof value === "number" ? value : undefined
+}
+
+function formatTokens(tokens: number): string {
+  if (tokens >= 1000) return `${Math.round(tokens / 100) / 10}k`
+  return String(tokens)
 }
 
 function commitAssistant(state: TranscriptState, event: Event): void {
