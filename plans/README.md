@@ -49,3 +49,11 @@ Index:
   events keyed to source event-id ranges. Re-projection from raw
   `events.jsonl` every step means no compounded loss. Plan-008 hooks
   for cheaper summarizer models and token-accurate budgets.
+- `008-terminal-bench.md` — evaluation integration. Adds an in-repo
+  `evals/terminal_bench/` adapter (Python, ~100 lines extending Harbor's
+  `BaseInstalledAgent`) that drives `lh` against the published npm
+  package inside Harbor-managed Docker/Daytona sandboxes. First 89-task
+  baseline (leharness 0.3.0 + DeepSeek-v4-flash) landed 31% pass rate /
+  $0.64 / 1h27m on local Docker — and identified the kernel's
+  `DEFAULT_MAX_STEPS = 25` ceiling as the single biggest bottleneck (44
+  of 51 failures hit it mid-productive-work).
