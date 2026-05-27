@@ -315,7 +315,7 @@ I want a harness core that is:
 These were the main AI tools I used while doing the research and writing in this repo:
 
 - [OpenAI Codex](https://github.com/openai/codex)
-- [Claude Code leak coverage](https://www.bleepingcomputer.com/news/artificial-intelligence/claude-code-source-code-accidentally-leaked-in-npm-package/amp/)
+- [Claude Code](https://www.anthropic.com/claude-code)
 
 ## Links
 
