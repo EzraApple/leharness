@@ -27,8 +27,16 @@ from harbor.models.agent.context import AgentContext
 
 # Pin to the published npm version. Bump explicitly when re-running
 # against a new leharness release so eval results stay reproducible
-# from (this commit, this constant).
-LEHARNESS_NPM_VERSION = "0.3.0"
+# from (this commit, this constant). See evals/terminal_bench/RUNS.md
+# for the changelog of bench runs and what changed between them.
+LEHARNESS_NPM_VERSION = "0.3.1"
+
+# Bumped from the kernel default (50) because Terminal-Bench tasks
+# routinely need 50+ tool calls (compilation, multi-step debugging,
+# scientific workflows). Plan-008's first baseline run showed 86% of
+# failures were max_steps cutoffs, not real model failures. 100 gives
+# the model room to actually finish; can override per-run via env.
+_LEHARNESS_MAX_STEPS = "100"
 
 # Stable session id we pass to `lh --session`. Doubles as the
 # directory name under /logs/artifacts/.leharness/sessions/ that we
@@ -57,7 +65,7 @@ class LeharnessAgent(BaseInstalledAgent):
         return "lh --help | head -1"
 
     async def install(self, environment: BaseEnvironment) -> None:
-        # leharness@0.3.0 requires Node >=20 (uses regex /v flag).
+        # leharness requires Node >=20 (uses regex /v flag and other 20+ syntax).
         # Many Terminal-Bench task images ship Node 18, so we install
         # Node 22 via nvm under the agent's home directory regardless
         # of what's already there. `run()` re-sources nvm so `lh` is
@@ -119,6 +127,7 @@ class LeharnessAgent(BaseInstalledAgent):
             command=_NVM_PRELUDE + (
                 f"LEHARNESS_HOME=/logs/artifacts/.leharness "
                 f"LEHARNESS_PROVIDER=deepseek "
+                f"LEHARNESS_MAX_STEPS={_LEHARNESS_MAX_STEPS} "
                 f"DEEPSEEK_API_KEY={shlex.quote(deepseek_key)} "
                 f"lh --session {_LEHARNESS_SESSION_ID} {quoted}"
             ),
