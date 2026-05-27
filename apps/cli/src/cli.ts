@@ -35,6 +35,7 @@ export interface ParsedArgs {
   sessionId?: string
   provider?: string
   model?: string
+  maxSteps?: number
   help?: boolean
 }
 
@@ -50,6 +51,11 @@ export function parseArgs(argv: string[]): ParsedArgs {
     else if (arg === "--session" || arg === "-s") out.sessionId = argv[++i]
     else if (arg === "--provider" || arg === "-p") out.provider = argv[++i]
     else if (arg === "--model" || arg === "-m") out.model = argv[++i]
+    else if (arg === "--max-steps") {
+      const raw = argv[++i]
+      const parsed = raw === undefined ? Number.NaN : Number.parseInt(raw, 10)
+      if (Number.isFinite(parsed) && parsed > 0) out.maxSteps = parsed
+    }
     else if (arg === "minimal" || arg === "cli") {
       out.mode = "minimal"
       sawInteractiveSubcommand = true
@@ -91,6 +97,7 @@ export async function main(argv: string[]): Promise<number> {
     tools: builtinTools,
     model: runtime.model,
     reasoningEffort: runtime.reasoningEffort,
+    maxSteps: resolveMaxSteps(args.maxSteps),
     compaction: resolveCompactionConfig(),
   }
   const sessionId = args.sessionId ?? ulid()
@@ -139,6 +146,16 @@ export async function main(argv: string[]): Promise<number> {
     return 1
   }
   return 0
+}
+
+// CLI flag wins; falls back to LEHARNESS_MAX_STEPS env; otherwise
+// returns undefined so the harness applies DEFAULT_MAX_STEPS.
+function resolveMaxSteps(flagValue: number | undefined): number | undefined {
+  if (flagValue !== undefined) return flagValue
+  const raw = process.env.LEHARNESS_MAX_STEPS
+  if (raw === undefined || raw.length === 0) return undefined
+  const parsed = Number.parseInt(raw, 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined
 }
 
 function registerSampleSubagents(services: ReturnType<typeof getOrCreateTaskServices>): void {
@@ -274,12 +291,14 @@ Options:
   -s, --session <id>        Use the given session id (defaults to a new ULID)
   -p, --provider <name>     Provider to use (ollama | openai | deepseek). Defaults to env LEHARNESS_PROVIDER or "ollama".
   -m, --model <name>        Model name to pass to the provider. Defaults to provider's default.
+      --max-steps <N>       Max tool-call iterations per invocation. Defaults to 50, override per session.
   -h, --help                Show this help
 
 Environment:
   LEHARNESS_HOME            Override .leharness directory location
   LEHARNESS_PROVIDER        Default provider
   LEHARNESS_MODEL           Default model
+  LEHARNESS_MAX_STEPS       Default max tool-call iterations (CLI flag --max-steps wins)
   OPENAI_API_KEY            Required when using --provider openai
   DEEPSEEK_API_KEY          Required when using --provider deepseek
   LEHARNESS_OLLAMA_BASE_URL Override Ollama endpoint (default http://localhost:11434/v1)
