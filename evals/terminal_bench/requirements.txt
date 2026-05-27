@@ -1,2 +1,2 @@
-harbor>=0.5
+harbor[daytona]>=0.5
 terminal-bench>=2.0
