@@ -110,6 +110,8 @@ keep the attribution.
 | Tool naming | MCP tools namespaced as `<server>__<tool>` to avoid collisions with builtins and across servers (e.g. `github__create_issue`). |
 | Lifecycle | Servers connect once at product startup, persist across invocations within a session. A crashed stdio server is surfaced, not auto-restarted in v1. |
 | Failure isolation | A server that fails to connect logs a warning and is skipped; its absence never blocks the session or other servers. |
+| Sequencing vs the tool-agnostic refactor | MCP is the first *non-zod tool source* in the codebase, so it proves out the `jsonSchema` path under real servers. When the future "tool-agnostic kernel" cleanup (README → What's Next) demotes zod to a `defineTool` helper and moves built-ins to a default-tools layer, the `jsonSchema` field becomes the *primary* path — not reworked. So plan 009 de-risks that refactor rather than adding debt to it. We deliberately do **not** pull the refactor into this plan: it touches all 10 existing tools and MCP doesn't need it. |
+| TUI work | The status badges + `/mcp` slash commands ship in the **implementation PR**, not a separate one — they're only testable once the client is wired and connecting to real servers. The kernel + `@leharness/mcp` package + CLI wiring land first in the same PR, then the TUI surface on top once there's something live to render. |
 
 ## The one kernel touch
 
