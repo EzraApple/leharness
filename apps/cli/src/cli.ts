@@ -55,8 +55,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
       const raw = argv[++i]
       const parsed = raw === undefined ? Number.NaN : Number.parseInt(raw, 10)
       if (Number.isFinite(parsed) && parsed > 0) out.maxSteps = parsed
-    }
-    else if (arg === "minimal" || arg === "cli") {
+    } else if (arg === "minimal" || arg === "cli") {
       out.mode = "minimal"
       sawInteractiveSubcommand = true
     } else if (arg === "tui") {
