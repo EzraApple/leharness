@@ -34,17 +34,30 @@ export class NeedsInteractiveAuthError extends Error {
   }
 }
 
+// A live loopback authorization, owned by the app layer. The app binds a
+// local redirect listener on a free port (so there's no hardcoded-port
+// collision) and reports the URI it chose; the oauth module then drives
+// the rest of the flow against that URI.
+export interface LoopbackAuthorization {
+  // The redirect URI the listener is bound to (e.g. http://127.0.0.1:PORT/callback).
+  redirectUri: string
+  // Open the browser to `authorizationUrl` and resolve with the captured
+  // authorization code (rejects on error/timeout).
+  waitForCode: (authorizationUrl: string) => Promise<string>
+  // Release the listener — called when the flow ends, on any outcome.
+  close: () => void
+}
+
 interface EnsureTokenArgs {
   serverName: string
   serverUrl: string
   // The WWW-Authenticate header from the server's 401, if any.
   wwwAuthenticate?: string
-  // Loopback URI the app will listen on for the redirect.
-  redirectUri: string
   store: TokenStore
-  // App-supplied: open the browser to `authorizationUrl`, capture the
-  // redirect at redirectUri, resolve with the authorization code.
-  authorize: (authorizationUrl: string) => Promise<string>
+  // App-supplied: begin a loopback authorization (bind the redirect
+  // listener, returning its URI + a code waiter). Invoked only on the
+  // interactive path, so no listener is bound unless a flow actually runs.
+  beginAuthorization: () => Promise<LoopbackAuthorization>
   // When false, stop before the browser flow and throw
   // NeedsInteractiveAuthError (used at startup so OAuth servers don't
   // block the TUI launch). Defaults to true.
@@ -88,50 +101,58 @@ export async function ensureAccessToken(args: EnsureTokenArgs): Promise<string> 
     throw new NeedsInteractiveAuthError(args.serverName)
   }
 
-  // Full authorization-code + PKCE flow.
-  let clientId = stored?.clientId
-  let clientSecret = stored?.clientSecret
-  if (clientId === undefined && metadata.registrationEndpoint !== undefined) {
-    const reg = await registerClient(metadata.registrationEndpoint, args.redirectUri)
-    clientId = reg.clientId
-    clientSecret = reg.clientSecret
+  // Full authorization-code + PKCE flow. The app binds the loopback
+  // listener now (picking a free port) and tells us the redirect URI; we
+  // register/authorize/exchange against it, then always release it.
+  const auth = await args.beginAuthorization()
+  try {
+    const redirectUri = auth.redirectUri
+    let clientId = stored?.clientId
+    let clientSecret = stored?.clientSecret
+    if (clientId === undefined && metadata.registrationEndpoint !== undefined) {
+      const reg = await registerClient(metadata.registrationEndpoint, redirectUri)
+      clientId = reg.clientId
+      clientSecret = reg.clientSecret
+    }
+    if (clientId === undefined) {
+      throw new Error(
+        `MCP OAuth for "${args.serverName}": no client_id and no registration endpoint to obtain one`,
+      )
+    }
+
+    const pkce = generatePkce()
+    const state = base64url(randomBytes(16))
+    const authorizationUrl = buildAuthorizationUrl(metadata.authorizationEndpoint, {
+      clientId,
+      redirectUri,
+      codeChallenge: pkce.challenge,
+      state,
+      resource: args.serverUrl,
+    })
+
+    const code = await auth.waitForCode(authorizationUrl)
+
+    const tokens = await exchangeCode(metadata.tokenEndpoint, {
+      code,
+      codeVerifier: pkce.verifier,
+      clientId,
+      clientSecret,
+      redirectUri,
+      resource: args.serverUrl,
+    })
+
+    const toStore: StoredTokens = {
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+      expiresAt: tokens.expiresAt,
+      clientId,
+      clientSecret,
+    }
+    await args.store.save(args.serverName, toStore)
+    return toStore.accessToken
+  } finally {
+    auth.close()
   }
-  if (clientId === undefined) {
-    throw new Error(
-      `MCP OAuth for "${args.serverName}": no client_id and no registration endpoint to obtain one`,
-    )
-  }
-
-  const pkce = generatePkce()
-  const state = base64url(randomBytes(16))
-  const authorizationUrl = buildAuthorizationUrl(metadata.authorizationEndpoint, {
-    clientId,
-    redirectUri: args.redirectUri,
-    codeChallenge: pkce.challenge,
-    state,
-    resource: args.serverUrl,
-  })
-
-  const code = await args.authorize(authorizationUrl)
-
-  const tokens = await exchangeCode(metadata.tokenEndpoint, {
-    code,
-    codeVerifier: pkce.verifier,
-    clientId,
-    clientSecret,
-    redirectUri: args.redirectUri,
-    resource: args.serverUrl,
-  })
-
-  const toStore: StoredTokens = {
-    accessToken: tokens.accessToken,
-    refreshToken: tokens.refreshToken,
-    expiresAt: tokens.expiresAt,
-    clientId,
-    clientSecret,
-  }
-  await args.store.save(args.serverName, toStore)
-  return toStore.accessToken
 }
 
 function isExpired(tokens: StoredTokens): boolean {

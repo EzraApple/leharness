@@ -180,7 +180,7 @@ export function TuiApp({
   // ready/exited changes which tools are available, so re-adapt on any
   // transition; the next invocation's activeDeps picks them up.
   useEffect(() => {
-    if (mcp?.manager === undefined) return
+    if (mcp === undefined) return
     const manager = mcp.manager
     const sync = () => {
       setMcpServers(manager.details())
@@ -638,14 +638,15 @@ export function TuiApp({
   // agent-led (it edits .leharness/mcp.json via file tools, guided by
   // the leharness-tui skill) — these commands are the user-led ops only.
   const runMcpCommand = async (text: string): Promise<void> => {
-    const manager = mcp?.manager
-    if (manager === undefined) {
-      appendSystemCell(
-        "mcp",
-        "No MCP servers configured. Ask me to add one, or edit .leharness/mcp.json.",
-      )
+    if (mcp === undefined) {
+      appendSystemCell("mcp", "MCP is unavailable in this session.")
       return
     }
+    // Pick up agent-led edits to .leharness/mcp.json: reload reconciles
+    // the manager's server set and connects any newly-added servers
+    // before we run the subcommand.
+    await mcp.reload()
+    const manager = mcp.manager
     const parts = text.trim().split(/\s+/)
     const sub = parts[1] ?? "list"
     const server = parts[2]
@@ -653,12 +654,20 @@ export function TuiApp({
     if (sub === "list") {
       const details = manager.details()
       if (details.size === 0) {
-        appendSystemCell("mcp", "No MCP servers configured.")
+        appendSystemCell(
+          "mcp",
+          "No MCP servers configured. Ask me to add one, or edit .leharness/mcp.json.",
+        )
         return
       }
-      const lines = [...details.entries()].map(
-        ([name, d]) => `${name} · ${d.status} · ${d.toolCount} tool(s)`,
-      )
+      const lines: string[] = []
+      for (const [name, d] of details.entries()) {
+        lines.push(`${name} · ${d.status} · ${d.toolCount} tool(s)`)
+        if (d.error !== undefined) lines.push(`    ↳ ${d.error}`)
+        if (d.recentStderr !== undefined) {
+          for (const line of d.recentStderr.slice(-5)) lines.push(`      ${line}`)
+        }
+      }
       appendSystemCell("mcp", lines.join("\n"))
       return
     }
@@ -692,7 +701,7 @@ export function TuiApp({
     }
     // Reflect any tool/status change immediately.
     setMcpServers(manager.details())
-    setMcpTools(mcp?.refreshTools() ?? [])
+    setMcpTools(mcp.refreshTools())
   }
 
   const submit = async (value: string) => {

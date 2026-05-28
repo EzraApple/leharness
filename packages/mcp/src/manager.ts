@@ -8,7 +8,11 @@
 // rather than popping a browser. The interactive flow runs later, on a
 // deliberate user gesture, via authorizeServer().
 
-import { ensureAccessToken, NeedsInteractiveAuthError } from "./auth/oauth.js"
+import {
+  ensureAccessToken,
+  type LoopbackAuthorization,
+  NeedsInteractiveAuthError,
+} from "./auth/oauth.js"
 import { createFileTokenStore, type TokenStore } from "./auth/token-store.js"
 import { McpClient } from "./client.js"
 import type { HttpServerConfig, ServerConfig, StdioServerConfig } from "./config.js"
@@ -21,6 +25,13 @@ export interface McpServerDetail {
   status: McpStatus
   toolCount: number
   serverInfo?: { name?: string; version?: string }
+  // Why a server is failed/exited (close reason or rejection message).
+  // Undefined while connecting/ready/auth_required.
+  error?: string
+  // Recent stderr lines from the server's last (re)connect attempt — the
+  // real diagnostic for a crashed stdio server (HTTP servers have none).
+  // Only populated for failed/exited servers.
+  recentStderr?: string[]
 }
 
 export interface McpToolDescriptor {
@@ -34,12 +45,11 @@ export interface McpToolDescriptor {
 }
 
 export interface ConnectOptions {
-  // Loopback redirect URI for OAuth (app owns the listener).
-  redirectUri: string
-  // App opens the browser to `authorizationUrl` and resolves with the
-  // captured authorization code. Only invoked when interactiveAuth is
-  // true (one-shot CLI) or via authorizeServer().
-  authorize: (authorizationUrl: string) => Promise<string>
+  // App-supplied: begin a loopback OAuth authorization — bind the redirect
+  // listener (on a free port, no hardcoded-port collision) and return its
+  // URI plus a code waiter. Only invoked when interactiveAuth is true
+  // (one-shot CLI) or via authorizeServer().
+  beginAuthorization: () => Promise<LoopbackAuthorization>
   // Forwarded server stderr (stdio) for debugging.
   onStderr?: (server: string, line: string) => void
   // When false (TUI startup), OAuth servers needing a browser flow are
@@ -60,12 +70,18 @@ interface ConnectedServer {
   serverInfo?: { name?: string; version?: string }
 }
 
+// How many recent stderr lines to retain per server for diagnostics.
+// Enough to capture a multi-line error dump without unbounded growth.
+const STDERR_TAIL_LIMIT = 12
+
 export class McpManager {
   private readonly store: TokenStore
   private readonly statusByServer = new Map<string, McpStatus>()
   private readonly connected = new Map<string, ConnectedServer>()
   private readonly serverByName = new Map<string, ServerConfig>()
   private readonly listeners = new Set<(name: string, status: McpStatus) => void>()
+  private readonly errorByServer = new Map<string, string>()
+  private readonly stderrTailByServer = new Map<string, string[]>()
   private lastConnectOptions: ConnectOptions | undefined
   private readonly clientName: string
   private readonly clientVersion: string
@@ -94,11 +110,17 @@ export class McpManager {
     const out = new Map<string, McpServerDetail>()
     for (const [name, status] of this.statusByServer) {
       const conn = this.connected.get(name)
-      out.set(name, {
+      const detail: McpServerDetail = {
         status,
         toolCount: conn?.tools.length ?? 0,
         serverInfo: conn?.serverInfo,
-      })
+      }
+      if (status === "failed" || status === "exited") {
+        detail.error = this.errorByServer.get(name)
+        const tail = this.stderrTailByServer.get(name)
+        if (tail !== undefined && tail.length > 0) detail.recentStderr = [...tail]
+      }
+      out.set(name, detail)
     }
     return out
   }
@@ -108,6 +130,41 @@ export class McpManager {
   async connectAll(opts: ConnectOptions): Promise<void> {
     this.lastConnectOptions = opts
     await Promise.all(this.options().map((server) => this.connectOne(server, opts)))
+  }
+
+  // Reconcile the configured set against a freshly-loaded config (the
+  // config file was edited mid-session — typically an agent-led add).
+  // Servers dropped from the config are disconnected and forgotten;
+  // servers new to the config are connected; servers whose definition
+  // changed (e.g. a stdio→url edit) are disconnected and reconnected so
+  // the edit applies on the next /mcp; unchanged servers keep their live
+  // connection. No-op until connectAll has run — it seeds the connect
+  // options reused here.
+  async syncServers(servers: ServerConfig[]): Promise<void> {
+    const opts = this.lastConnectOptions
+    if (opts === undefined) return
+    const next = new Map(servers.map((s) => [s.name, s]))
+
+    for (const name of [...this.serverByName.keys()]) {
+      if (!next.has(name)) {
+        await this.disconnectOne(name)
+        this.serverByName.delete(name)
+        this.statusByServer.delete(name)
+      }
+    }
+
+    const toConnect: ServerConfig[] = []
+    for (const [name, server] of next) {
+      const existing = this.serverByName.get(name)
+      const changed = existing !== undefined && !sameServerConfig(existing, server)
+      this.serverByName.set(name, server)
+      if (existing === undefined || changed) {
+        if (changed) await this.disconnectOne(name)
+        this.setStatus(name, "connecting")
+        toConnect.push(server)
+      }
+    }
+    await Promise.all(toConnect.map((server) => this.connectOne(server, opts)))
   }
 
   // Retry a single server (after the user edits config, or a crash).
@@ -153,8 +210,18 @@ export class McpManager {
   }
 
   private setStatus(name: string, status: McpStatus): void {
+    // A healthy transition clears any stale failure reason; failed/exited
+    // keep whatever the caller recorded just before calling setStatus.
+    if (status !== "failed" && status !== "exited") this.errorByServer.delete(name)
     this.statusByServer.set(name, status)
     for (const listener of this.listeners) listener(name, status)
+  }
+
+  private recordStderr(name: string, line: string): void {
+    const tail = this.stderrTailByServer.get(name) ?? []
+    tail.push(line)
+    while (tail.length > STDERR_TAIL_LIMIT) tail.shift()
+    this.stderrTailByServer.set(name, tail)
   }
 
   private async disconnectOne(name: string): Promise<void> {
@@ -166,6 +233,8 @@ export class McpManager {
   }
 
   private async connectOne(server: ServerConfig, opts: ConnectOptions): Promise<void> {
+    // Fresh attempt — drop stderr captured from any previous try.
+    this.stderrTailByServer.delete(server.name)
     try {
       const connected =
         server.kind === "stdio"
@@ -178,12 +247,11 @@ export class McpManager {
         this.setStatus(server.name, "auth_required")
         return
       }
-      // Isolation: surface and move on — one bad server never blocks
-      // the others or the session.
+      // Isolation: record why and move on — one bad server never blocks
+      // the others or the session. The reason surfaces via details()
+      // (/mcp); we don't print it, so the TUI stays quiet.
+      this.errorByServer.set(server.name, err instanceof Error ? err.message : String(err))
       this.setStatus(server.name, "failed")
-      console.warn(
-        `[mcp] server "${server.name}" failed to connect: ${err instanceof Error ? err.message : String(err)}`,
-      )
     }
   }
 
@@ -195,14 +263,20 @@ export class McpManager {
       command: server.command,
       args: server.args,
       env: server.env,
-      onStderr: (line) => opts.onStderr?.(server.name, line),
+      onStderr: (line) => {
+        // Capture for diagnostics (surfaced via /mcp) and forward to the
+        // product's optional sink (suppressed in the TUI to stay quiet).
+        this.recordStderr(server.name, line)
+        opts.onStderr?.(server.name, line)
+      },
     })
     const client = new McpClient(transport, {
       clientName: this.clientName,
       clientVersion: this.clientVersion,
     })
-    transport.onClose(() => {
+    transport.onClose((reason) => {
       if (this.statusByServer.get(server.name) === "ready") {
+        this.errorByServer.set(server.name, reason)
         this.setStatus(server.name, "exited")
       }
     })
@@ -241,9 +315,8 @@ export class McpManager {
         serverName: server.name,
         serverUrl: server.url,
         wwwAuthenticate: err.wwwAuthenticate,
-        redirectUri: opts.redirectUri,
         store: this.store,
-        authorize: opts.authorize,
+        beginAuthorization: opts.beginAuthorization,
         interactive: opts.interactiveAuth ?? true,
       })
       client = makeClient()
@@ -264,4 +337,11 @@ export class McpManager {
     }))
     return { client, tools, serverInfo: client.server }
   }
+}
+
+// Two server configs are equal when their definitions match. Both come
+// from the same config parser, so field order is stable and a JSON
+// compare is enough to detect an edit (e.g. command→url, changed args).
+function sameServerConfig(a: ServerConfig, b: ServerConfig): boolean {
+  return JSON.stringify(a) === JSON.stringify(b)
 }

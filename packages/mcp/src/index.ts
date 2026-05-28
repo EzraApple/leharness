@@ -4,6 +4,7 @@
 // design — this package never imports @leharness/harness. The app adapts
 // McpToolDescriptor into a harness Tool.
 
+export type { LoopbackAuthorization } from "./auth/oauth.js"
 export { McpClient, type McpClientOptions } from "./client.js"
 export {
   type HttpServerConfig,

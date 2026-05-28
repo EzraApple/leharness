@@ -28,6 +28,7 @@ export function McpStatusLine({ servers }: { servers: Map<string, McpServerDetai
 
   const entries = [...servers.entries()]
   const needsAuth = entries.find(([, d]) => d.status === "auth_required")?.[0]
+  const hasProblem = entries.some(([, d]) => d.status === "failed" || d.status === "exited")
 
   return (
     <Box>
@@ -39,7 +40,11 @@ export function McpStatusLine({ servers }: { servers: Map<string, McpServerDetai
           <Text color="gray">{name}</Text>
         </Text>
       ))}
-      {needsAuth !== undefined ? <Text color="gray">{`  (/mcp auth ${needsAuth})`}</Text> : null}
+      {needsAuth !== undefined ? (
+        <Text color="gray">{`  (/mcp auth ${needsAuth})`}</Text>
+      ) : hasProblem ? (
+        <Text color="gray"> (/mcp for details)</Text>
+      ) : null}
     </Box>
   )
 }

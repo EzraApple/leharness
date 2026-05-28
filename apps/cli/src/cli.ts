@@ -98,14 +98,16 @@ export async function main(argv: string[]): Promise<number> {
   // tools in alongside the builtins. Non-fatal: a broken server is
   // skipped, the session proceeds with whatever connected. The TUI
   // connects non-interactively (OAuth servers become auth_required, no
-  // browser at launch); one-shot / minimal block + auth inline.
-  const mcp = await setupMcp({ interactiveAuth: args.mode !== "tui" })
+  // browser at launch) and stays quiet — server logs would corrupt the
+  // Ink screen, so failures surface via /mcp instead. One-shot / minimal
+  // block + auth inline and forward logs for debugging.
+  const isTui = args.mode === "tui"
+  const mcp = await setupMcp({ interactiveAuth: !isTui, forwardServerLogs: !isTui })
 
   // The TUI manages MCP tools dynamically (reconnect/auth can change
   // them mid-session), so its deps carry builtins only and the MCP
   // tools arrive via controls. One-shot / minimal fold the connected
   // MCP tools straight in — they're static for the run.
-  const isTui = args.mode === "tui"
   const sessionTools = isTui ? builtinTools : [...builtinTools, ...mcp.tools]
 
   const deps: HarnessDeps = {
@@ -160,10 +162,10 @@ export async function main(argv: string[]): Promise<number> {
     await runTui(sessionId, deps, args.sessionId !== undefined, {
       manager: mcp.manager,
       initialTools: mcp.tools,
-      // Re-adapt the manager's live tools after reconnect/auth so the
-      // TUI can fold updated tools into the next invocation's deps.
-      refreshTools: () =>
-        mcp.manager === undefined ? [] : mcp.manager.listAllTools().map(mcpToolToHarnessTool),
+      // Re-adapt the manager's live tools after reconnect/auth/reload so
+      // the TUI can fold updated tools into the next invocation's deps.
+      refreshTools: () => mcp.manager.listAllTools().map(mcpToolToHarnessTool),
+      reload: mcp.reload,
     })
   } catch (err) {
     process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`)

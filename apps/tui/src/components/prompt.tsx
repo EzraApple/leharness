@@ -69,10 +69,27 @@ function StyledTextInput({
         return
       }
 
-      const newlineIndex = rawInput.search(/[\r\n]/)
-      if (key.return || newlineIndex >= 0) {
-        const pastedPrefix = newlineIndex >= 0 ? rawInput.slice(0, newlineIndex) : ""
-        onSubmit(value.slice(0, cursorOffset) + pastedPrefix + value.slice(cursorOffset))
+      // Normalize CRLF/CR so pasted line endings become "\n" in the buffer.
+      const text = rawInput.replace(/\r\n?/g, "\n")
+      const isPaste = text.length > 1
+
+      // Shift+Enter composes a newline instead of submitting — only where
+      // the terminal reports the shift modifier on Enter. Many terminals
+      // send a bare Enter for Shift+Enter (indistinguishable here), so
+      // pasting a multi-line snippet remains the reliable way to compose.
+      if (key.return && key.shift) {
+        const composed = `${value.slice(0, cursorOffset)}\n${value.slice(cursorOffset)}`
+        setCursorOffset(cursorOffset + 1)
+        onChange(composed)
+        return
+      }
+
+      // A lone Enter keypress submits. A multi-character paste — even one
+      // containing newlines — is inserted into the buffer instead, so a
+      // multi-line snippet survives intact rather than being truncated to
+      // its first line and fired off prematurely.
+      if (!isPaste && (key.return || text === "\n")) {
+        onSubmit(value)
         return
       }
 
@@ -88,9 +105,9 @@ function StyledTextInput({
           nextValue = value.slice(0, cursorOffset - 1) + value.slice(cursorOffset)
           nextCursorOffset -= 1
         }
-      } else if (rawInput.length > 0) {
-        nextValue = value.slice(0, cursorOffset) + rawInput + value.slice(cursorOffset)
-        nextCursorOffset += rawInput.length
+      } else if (text.length > 0) {
+        nextValue = value.slice(0, cursorOffset) + text + value.slice(cursorOffset)
+        nextCursorOffset += text.length
       }
 
       nextCursorOffset = Math.max(0, Math.min(nextValue.length, nextCursorOffset))

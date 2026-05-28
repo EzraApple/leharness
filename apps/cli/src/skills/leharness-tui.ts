@@ -45,26 +45,38 @@ Cursor / Cline:
 \`\`\`
 
 - A server with \`command\` runs as a local subprocess (stdio). Put any
-  secrets in \`env\`.
-- A server with \`url\` is an HTTP server. If it needs a static token, add
-  \`"headers": { "Authorization": "Bearer ..." }\`. If it uses OAuth,
-  add no token — the user authorizes it interactively (see below).
+  secrets in \`env\`. Use this only for servers distributed as a local
+  package/binary.
+- A server with \`url\` is a remote HTTP server. If it needs a static
+  token, add \`"headers": { "Authorization": "Bearer ..." }\`. If it uses
+  OAuth, add no token — the user authorizes it interactively (see below).
+
+IMPORTANT: for a **remote** server (anything with an \`https://\` endpoint,
+e.g. Linear at \`https://mcp.linear.app/mcp\`), always use the \`url\` form.
+leharness speaks Streamable HTTP and runs the full OAuth flow itself. Do
+NOT wrap a remote server in a stdio bridge like \`mcp-remote\` or
+\`supergateway\` — that bypasses leharness's built-in auth, so the server
+connects as \`ready\` but exposes no tools and never triggers our browser
+flow. The presence of an \`https://\` URL in the args is the tell that a
+bridge is being (wrongly) used; configure the URL directly instead.
 
 Steps:
 1. Read the current \`.leharness/mcp.json\` (it may not exist yet).
 2. Merge the new server into \`mcpServers\` — preserve existing entries.
 3. Write it back. Validate it's still valid JSON.
-4. Tell the user to run \`/mcp reconnect\` to connect the new server,
-   then \`/mcp auth <name>\` if it's an OAuth server.
+4. Tell the user to run \`/mcp\` — it re-reads the config and connects any
+   newly-added servers — then \`/mcp auth <name>\` if it's an OAuth server.
 
 You CANNOT connect, authorize, or restart servers yourself — those are
 user gestures via slash commands. Your job is the config edit.
 
 ## Slash commands the user runs (you cannot run these)
 
-- \`/mcp\` — list configured servers, their status, and tool counts
-- \`/mcp reconnect <server>\` — connect or retry a server (run after you
-  edit the config)
+- \`/mcp\` — re-read the config, connect any newly-added servers, and
+  list every server with its status and tool count (run after you edit
+  the config)
+- \`/mcp reconnect <server>\` — disconnect and retry one server (use after
+  editing an existing server's command/url, or if it crashed)
 - \`/mcp auth <server>\` — open the browser to authorize an OAuth server
 - \`/mcp logout <server>\` — clear a server's stored tokens
 - \`/model\`, \`/effort\` — switch model / reasoning effort
