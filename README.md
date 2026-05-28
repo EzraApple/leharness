@@ -246,6 +246,7 @@ The kernel — loop, event log, tool runtime, background tasks, subagents, artif
 - web inspector
 - coding-agent wrapper
 - MCP integration
+- tool-agnostic kernel: the bigger built-in features (tasks, subagents, artifacts, skills) currently ship their model-facing tools inside the kernel. Pull those into a modular "default tools" layer over the kernel services, so the core loop carries no opinions about which tools exist
 - branchable session history
 - VM runners
 - Telegram or other bot adapters
