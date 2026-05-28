@@ -10,10 +10,13 @@ to one specific delta vs the previous row.
 
 | Date       | leharness | Model         | Max steps   | Concurrent | Pass | Fail | Exc | Pass% | Cost   | Runtime | What changed |
 |------------|-----------|---------------|-------------|------------|------|------|-----|-------|--------|---------|--------------|
-| 2026-05-26 | 0.3.0     | ds-v4-flash   | 25 (kernel) | 10         | 28   | 51   | 10  | 31%   | $0.64  | 1h27m   | **Baseline.** Identified `DEFAULT_MAX_STEPS=25` as the kernel ceiling: 44 of 51 failures were cutoffs mid-productive-work, not real model failures. |
+| 2026-05-26 | 0.3.0     | ds-v4-flash   | 25 (kernel) | 10 local   | 28   | 51   | 10  | 31% (35% eff) | $0.64  | 1h27m   | **Baseline.** Identified `DEFAULT_MAX_STEPS=25` as the kernel ceiling: 44 of 51 failures were cutoffs mid-productive-work, not real model failures. |
+| 2026-05-27 | 0.3.1     | ds-v4-flash   | 100 (env)   | 2 daytona  | 28   | 31   | 34  | 31% (**51% eff**) | ~$0.03 | 5h53m   | **`max_steps=100`** (kernel default bumped 25→50; env override to 100 for bench). Filtered pass% jumped 35→51% — into OpenCode+Opus 4.5 territory (51.7%). 34 Daytona disk-cap exceptions (free-tier 30GB ceiling) tanked the headline; the real signal is the effective pass% gain. |
+
+**"Effective"** = pass / (pass + fail), excluding infra exceptions that never reached the agent (Daytona disk caps, env start timeouts). That's the metric for "given the sandbox actually started, did the harness+model solve the task?" Raw % is what shows up on leaderboards but effective % is what tells you about the harness.
 
 <!-- Template for next row:
-| YYYY-MM-DD | x.y.z     | ds-v4-flash   | NN          | N          | NN   | NN   | NN  | NN%   | $N.NN  | NhNNm   | one-line delta vs prev row |
+| YYYY-MM-DD | x.y.z     | ds-v4-flash   | NN          | N <env>    | NN   | NN   | NN  | NN% (NN% eff) | $N.NN  | NhNNm   | one-line delta vs prev row |
 -->
 
 ## Compute pass-rate + cost from a job dir
