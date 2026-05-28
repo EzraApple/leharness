@@ -23,6 +23,17 @@ interface AuthServerMetadata {
   registrationEndpoint?: string
 }
 
+// Thrown when a valid token can't be obtained without user interaction
+// (no stored token, refresh failed) and `interactive` is false. The
+// manager turns this into an "auth_required" status instead of opening
+// a browser at startup.
+export class NeedsInteractiveAuthError extends Error {
+  constructor(serverName: string) {
+    super(`MCP server "${serverName}" needs interactive authorization`)
+    this.name = "NeedsInteractiveAuthError"
+  }
+}
+
 interface EnsureTokenArgs {
   serverName: string
   serverUrl: string
@@ -34,6 +45,10 @@ interface EnsureTokenArgs {
   // App-supplied: open the browser to `authorizationUrl`, capture the
   // redirect at redirectUri, resolve with the authorization code.
   authorize: (authorizationUrl: string) => Promise<string>
+  // When false, stop before the browser flow and throw
+  // NeedsInteractiveAuthError (used at startup so OAuth servers don't
+  // block the TUI launch). Defaults to true.
+  interactive?: boolean
 }
 
 // Returns a valid access token, running whatever subset of the flow is
@@ -65,6 +80,12 @@ export async function ensureAccessToken(args: EnsureTokenArgs): Promise<string> 
     } catch {
       // refresh failed — fall through to a full authorization
     }
+  }
+
+  // Reaching here means a browser flow is required. Bail early when the
+  // caller asked to stay non-interactive (e.g. TUI startup).
+  if (args.interactive === false) {
+    throw new NeedsInteractiveAuthError(args.serverName)
   }
 
   // Full authorization-code + PKCE flow.

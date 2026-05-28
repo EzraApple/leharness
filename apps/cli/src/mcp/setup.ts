@@ -17,7 +17,14 @@ interface McpSetupResult {
   manager: McpManager | undefined
 }
 
-export async function setupMcp(): Promise<McpSetupResult> {
+interface SetupMcpOptions {
+  // TUI passes false: OAuth servers needing a browser flow are marked
+  // auth_required at startup rather than blocking on a browser. One-shot
+  // / minimal modes pass true (block + open browser inline).
+  interactiveAuth: boolean
+}
+
+export async function setupMcp(options: SetupMcpOptions): Promise<McpSetupResult> {
   const home = resolveLeharnessHome()
   const configPath = path.join(home, "mcp.json")
   const { servers, warnings } = await loadMcpConfig(configPath)
@@ -36,11 +43,11 @@ export async function setupMcp(): Promise<McpSetupResult> {
   await manager.connectAll({
     redirectUri,
     authorize,
+    interactiveAuth: options.interactiveAuth,
     onStderr: (server, line) => process.stderr.write(`[mcp:${server}] ${line}\n`),
   })
 
-  const status = manager.status()
-  const ready = [...status.values()].filter((s) => s === "ready").length
+  const ready = [...manager.status().values()].filter((s) => s === "ready").length
   process.stderr.write(`[mcp] ${ready}/${servers.length} server(s) ready\n`)
 
   const tools = manager.listAllTools().map(mcpToolToHarnessTool)

@@ -189,6 +189,21 @@ function safeTarget(display: ToolDisplay, args: unknown): string | undefined {
 }
 
 function fallback(name: string, args: unknown): ToolDisplaySnapshot {
+  // MCP tools are namespaced `<server>__<tool>` — render them with the
+  // server attribution so it's clear the call came from an MCP server
+  // rather than a builtin.
+  const sep = name.indexOf("__")
+  if (sep > 0) {
+    const server = name.slice(0, sep)
+    const tool = name.slice(sep + 2)
+    const label = `${tool} · via ${server}`
+    return {
+      pending: label,
+      completed: `${label} ok`,
+      failed: `${label} failed`,
+      target: argsPreview(args),
+    }
+  }
   return {
     pending: name,
     completed: `${name} ok`,

@@ -15,7 +15,28 @@ import { z } from "zod"
 import type { Event } from "./events.js"
 import type { Tool, ToolContext, ToolExecuteResult } from "./tools.js"
 
-export type SkillSource = "workspace_leharness" | "workspace_agents" | "workspace_claude"
+export type SkillSource =
+  | "workspace_leharness"
+  | "workspace_agents"
+  | "workspace_claude"
+  | "builtin"
+
+// Built-in skills ship with a product (CLI/TUI) rather than the
+// workspace. The kernel only provides the mechanism — register the
+// content from the product so the kernel stays product-agnostic, the
+// same way it dispatches tools the product supplies. Embedded as data
+// (not files) so it survives bundling.
+interface BuiltinSkill {
+  name: string
+  description: string
+  body: string
+}
+
+const builtinSkills = new Map<string, BuiltinSkill>()
+
+export function registerBuiltinSkill(skill: BuiltinSkill): void {
+  builtinSkills.set(skill.name, skill)
+}
 
 export interface Skill {
   name: string
@@ -79,7 +100,28 @@ export async function discoverSkills(root = process.cwd()): Promise<Skill[]> {
       if (skill !== undefined) skills.push(skill)
     }
   }
+  // Built-in (product-shipped) skills join the discovered ones. A
+  // workspace skill of the same name takes precedence (sorted below),
+  // so users can override a built-in by dropping their own SKILL.md.
+  for (const builtin of builtinSkills.values()) {
+    if (skills.some((s) => s.name === builtin.name)) continue
+    skills.push(synthesizeBuiltinSkill(builtin))
+  }
   return sortSkillsForPrecedence(skills)
+}
+
+function synthesizeBuiltinSkill(builtin: BuiltinSkill): Skill {
+  const relativePath = `<builtin>/${builtin.name}/SKILL.md`
+  return {
+    name: builtin.name,
+    description: builtin.description,
+    path: relativePath,
+    relativePath,
+    source: "builtin",
+    mtimeMs: 0,
+    size: Buffer.byteLength(builtin.body, "utf8"),
+    contentHash: crypto.createHash("sha256").update(builtin.body).digest("hex"),
+  }
 }
 
 export function renderSkillCatalog(skills: Skill[], options: SkillCatalogOptions = {}): string {
@@ -131,8 +173,14 @@ export function createLoadSkillTool(
       const skill = matches[0]
       if (skill === undefined) return { kind: "error", message: `skill not found: ${args.name}` }
 
-      const body = await readSkillBody(skill.path, options.maxSkillBytes ?? DEFAULT_MAX_SKILL_BYTES)
-      const supportingFiles = await listSupportingFiles(path.dirname(skill.path))
+      // Built-in skills carry their body in memory (no file on disk).
+      const builtin = skill.source === "builtin" ? builtinSkills.get(skill.name) : undefined
+      const body =
+        builtin !== undefined
+          ? builtin.body
+          : await readSkillBody(skill.path, options.maxSkillBytes ?? DEFAULT_MAX_SKILL_BYTES)
+      const supportingFiles =
+        builtin !== undefined ? [] : await listSupportingFiles(path.dirname(skill.path))
       const shadowed = matches.slice(1)
 
       await ctx.recordEvent?.("skill.loaded", {

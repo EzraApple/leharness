@@ -17,6 +17,7 @@ export {
   type ConnectOptions,
   McpManager,
   type McpManagerOptions,
+  type McpServerDetail,
   type McpStatus,
   type McpToolDescriptor,
 } from "./manager.js"

@@ -54,6 +54,9 @@ importers:
       '@leharness/harness':
         specifier: workspace:*
         version: link:../../packages/harness
+      '@leharness/mcp':
+        specifier: workspace:*
+        version: link:../../packages/mcp
       cli-highlight:
         specifier: ^2.1.11
         version: 2.1.11

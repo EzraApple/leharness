@@ -20,8 +20,10 @@ import {
 } from "@leharness/harness"
 import { runTui } from "@leharness/tui"
 import { ulid } from "ulid"
+import { mcpToolToHarnessTool } from "./mcp/adapter.js"
 import { setupMcp } from "./mcp/setup.js"
 import { LiveRenderer } from "./render.js"
+import { registerLeharnessTuiSkill } from "./skills/leharness-tui.js"
 import { bashTool } from "./tools/bash.js"
 import { builtinTools } from "./tools/index.js"
 import { readFileTool } from "./tools/read_file.js"
@@ -74,6 +76,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
 
 export async function main(argv: string[]): Promise<number> {
   loadDotEnvFiles()
+  registerLeharnessTuiSkill()
   const args = parseArgs(argv)
   if (args.help) {
     printUsage()
@@ -93,13 +96,22 @@ export async function main(argv: string[]): Promise<number> {
 
   // Connect configured MCP servers (.leharness/mcp.json) and fold their
   // tools in alongside the builtins. Non-fatal: a broken server is
-  // skipped, the session proceeds with whatever connected.
-  const mcp = await setupMcp()
+  // skipped, the session proceeds with whatever connected. The TUI
+  // connects non-interactively (OAuth servers become auth_required, no
+  // browser at launch); one-shot / minimal block + auth inline.
+  const mcp = await setupMcp({ interactiveAuth: args.mode !== "tui" })
+
+  // The TUI manages MCP tools dynamically (reconnect/auth can change
+  // them mid-session), so its deps carry builtins only and the MCP
+  // tools arrive via controls. One-shot / minimal fold the connected
+  // MCP tools straight in — they're static for the run.
+  const isTui = args.mode === "tui"
+  const sessionTools = isTui ? builtinTools : [...builtinTools, ...mcp.tools]
 
   const deps: HarnessDeps = {
     systemPrompt: CLI_SYSTEM_PROMPT,
     provider,
-    tools: [...builtinTools, ...mcp.tools],
+    tools: sessionTools,
     model: runtime.model,
     reasoningEffort: runtime.reasoningEffort,
     maxSteps: resolveMaxSteps(args.maxSteps),
@@ -114,7 +126,7 @@ export async function main(argv: string[]): Promise<number> {
       provider,
       model: deps.model,
       systemPrompt: deps.systemPrompt,
-      tools: deps.tools,
+      tools: [...builtinTools, ...mcp.tools],
       reasoningEffort: deps.reasoningEffort,
     },
     runInvocation,
@@ -145,7 +157,14 @@ export async function main(argv: string[]): Promise<number> {
   }
 
   try {
-    await runTui(sessionId, deps, args.sessionId !== undefined)
+    await runTui(sessionId, deps, args.sessionId !== undefined, {
+      manager: mcp.manager,
+      initialTools: mcp.tools,
+      // Re-adapt the manager's live tools after reconnect/auth so the
+      // TUI can fold updated tools into the next invocation's deps.
+      refreshTools: () =>
+        mcp.manager === undefined ? [] : mcp.manager.listAllTools().map(mcpToolToHarnessTool),
+    })
   } catch (err) {
     process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`)
     return 1
