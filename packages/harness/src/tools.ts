@@ -1,9 +1,13 @@
 // tools.ts
-// The tool contract every app-provided tool implements (name + Zod schema +
-// async execute) and the runtime that invokes it. executeToolCall validates
-// args, runs the tool, truncates output, and wraps the outcome in a
-// discriminated ToolResult the loop branches on. No display / naming concerns
-// live here — those are the UI's job; the kernel returns raw facts.
+// The tool contract every tool implements (name + schema + async execute)
+// and the runtime that invokes it. A tool carries its parameter schema in
+// whichever form is native to its source: a Zod schema (first-party tools,
+// validated + converted to JSON Schema for the model) OR a pre-built JSON
+// Schema (external sources like MCP, passed to the model verbatim, the
+// tool owns its own validation). executeToolCall validates args when a Zod
+// schema is present, runs the tool, and wraps the outcome in a
+// discriminated ToolResult the loop branches on. No display / naming
+// concerns live here — those are the UI's job; the kernel returns raw facts.
 
 import type { ZodTypeAny } from "zod"
 import type { RecordEvent } from "./events.js"
@@ -30,7 +34,14 @@ export type ToolExecuteResult =
 export interface Tool<Args = unknown> {
   name: string
   description: string
-  schema: ZodTypeAny
+  // Zod schema (first-party tools): validated before execute and
+  // converted to JSON Schema for the provider. Mutually exclusive in
+  // practice with `jsonSchema` — set one.
+  schema?: ZodTypeAny
+  // Pre-built JSON Schema (external/MCP tools): handed to the provider
+  // verbatim, no Zod round-trip. When this is the only schema present,
+  // executeToolCall skips validation and the tool/server owns it.
+  jsonSchema?: Record<string, unknown>
   execute(args: Args, ctx: ToolContext): Promise<ToolExecuteResult>
 }
 
@@ -64,22 +75,29 @@ export async function executeToolCall(
   if (tool === undefined) {
     return { kind: "error", call, error: `tool not found: ${call.name}` }
   }
-  const parsed = tool.schema.safeParse(call.args)
-  if (!parsed.success) {
-    const message = parsed.error.issues
-      .map((issue) => {
-        const pathStr = issue.path.length > 0 ? issue.path.join(".") : "(root)"
-        return `${pathStr}: ${issue.message}`
-      })
-      .join("; ")
-    return {
-      kind: "error",
-      call,
-      error: `invalid args for ${call.name}: ${message}`,
+  // Validate against the Zod schema when present. JSON-Schema-only tools
+  // (MCP) skip kernel validation — the server is the source of truth for
+  // its own inputs — so their args pass through untouched.
+  let args: unknown = call.args
+  if (tool.schema !== undefined) {
+    const parsed = tool.schema.safeParse(call.args)
+    if (!parsed.success) {
+      const message = parsed.error.issues
+        .map((issue) => {
+          const pathStr = issue.path.length > 0 ? issue.path.join(".") : "(root)"
+          return `${pathStr}: ${issue.message}`
+        })
+        .join("; ")
+      return {
+        kind: "error",
+        call,
+        error: `invalid args for ${call.name}: ${message}`,
+      }
     }
+    args = parsed.data
   }
   try {
-    const result = await tool.execute(parsed.data, ctx)
+    const result = await tool.execute(args, ctx)
     if (result.kind === "ok") {
       // No truncation here — the loop layer decides whether to artifact
       // the full output or truncate it as a fallback (see
