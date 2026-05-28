@@ -19,7 +19,11 @@ import { preparePrompt } from "./prepare-prompt.js"
 import { endInvocation, loadInvocationState } from "./state.js"
 import { drainTaskQueue, reapOrphanTasks } from "./task-drain.js"
 
-export const DEFAULT_MAX_STEPS = 25
+// Default ceiling on tool-call iterations per invocation. Tuned for
+// agentic work (file edits, multi-step shell sequences), not chat.
+// Override via HarnessDeps.maxSteps or the CLI's --max-steps flag /
+// LEHARNESS_MAX_STEPS env var.
+export const DEFAULT_MAX_STEPS = 50
 
 // AbortSignal.aborted is readonly so TS narrows it after a single ===-check;
 // wrap the read so each loop iteration re-evaluates it.
