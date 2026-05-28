@@ -85,26 +85,7 @@ client-side reasoning effort picker for supported models:
 /effort
 ```
 
-Useful options:
-
-```bash
-lh --session <id>        # resume an existing session
-lh --provider openai     # choose openai, ollama, or deepseek
-lh --model <name>        # override the provider's default model
-lh --help                # print usage
-```
-
-Environment variables:
-
-```bash
-LEHARNESS_HOME=...             # override the session storage directory
-LEHARNESS_PROVIDER=openai      # set the default provider
-LEHARNESS_MODEL=gpt-4o-mini    # set the default model
-OPENAI_API_KEY=...             # required for OpenAI
-DEEPSEEK_API_KEY=...           # required for DeepSeek
-LEHARNESS_OLLAMA_BASE_URL=...  # override the Ollama OpenAI-compatible URL
-LEHARNESS_DEEPSEEK_BASE_URL=... # override the DeepSeek OpenAI-compatible URL
-```
+See `lh --help` for the full set of options and environment variables.
 
 The CLI also reads a repo-local `.env` file before provider setup.
 
@@ -256,37 +237,16 @@ ingress -> invocation -> append invocation events -> run session loop
   })
   ```
 
-## MVP Shape
+## Status
 
-The first version should prove the kernel, not the product:
+The kernel — loop, event log, tool runtime, background tasks, subagents, artifacts, compaction — is built. Per-feature design docs live in [`plans/`](./plans/).
 
-- CLI-first
-- one provider
-- append-only session log
-- artifact persistence
-- a few core tools
-- one compaction path
-- task handles for background-capable work
-- isolated subagent execution
-- synthetic completion notifications projected back into session state
-
-If that part is solid, the rest should mostly be feature work instead of surgery.
-
-## What Can Grow On Top
-
-Once the core is stable, these should be things I can add independently:
+## What's Next
 
 - web inspector
-- richer CLI UX
 - coding-agent wrapper
-- TUI
 - MCP integration
-- skills
-- more tools
-- better compaction strategies
-- steering/follow-up ingress queues
 - branchable session history
-- evals and replay tooling
 - VM runners
 - Telegram or other bot adapters
 - more opinionated agent products built on top of the same harness
