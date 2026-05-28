@@ -35,6 +35,72 @@ export function Prompt({
   )
 }
 
+export type TextKeyAction =
+  | { kind: "submit" }
+  | { kind: "update"; value: string; cursorOffset: number }
+
+// How a text-editing keypress changes the prompt buffer. Pure, so the
+// paste / shift+enter / submit rules can be tested without rendering Ink.
+// `key` is the subset of Ink's Key this prompt acts on (the component has
+// already filtered out the navigation/control keys it ignores), so the
+// raw Ink Key object is assignable.
+export function reduceTextKey(
+  value: string,
+  cursorOffset: number,
+  rawInput: string,
+  key: {
+    return?: boolean
+    shift?: boolean
+    leftArrow?: boolean
+    rightArrow?: boolean
+    backspace?: boolean
+    delete?: boolean
+  },
+  showCursor: boolean,
+): TextKeyAction {
+  // Normalize CRLF/CR so pasted line endings become "\n" in the buffer.
+  const text = rawInput.replace(/\r\n?/g, "\n")
+  const isPaste = text.length > 1
+
+  // Shift+Enter composes a newline instead of submitting — only where the
+  // terminal reports the shift modifier on Enter. Many terminals send a
+  // bare Enter for Shift+Enter (indistinguishable here), so pasting a
+  // multi-line snippet remains the reliable way to compose.
+  if (key.return && key.shift) {
+    return {
+      kind: "update",
+      value: `${value.slice(0, cursorOffset)}\n${value.slice(cursorOffset)}`,
+      cursorOffset: cursorOffset + 1,
+    }
+  }
+
+  // A lone Enter submits. A multi-character paste — even one containing
+  // newlines — is inserted instead, so a multi-line snippet survives
+  // intact rather than being truncated to its first line and fired off.
+  if (!isPaste && (key.return || text === "\n")) {
+    return { kind: "submit" }
+  }
+
+  let nextValue = value
+  let nextCursorOffset = cursorOffset
+  if (key.leftArrow) {
+    if (showCursor) nextCursorOffset -= 1
+  } else if (key.rightArrow) {
+    if (showCursor) nextCursorOffset += 1
+  } else if (key.backspace || key.delete) {
+    if (cursorOffset > 0) {
+      nextValue = value.slice(0, cursorOffset - 1) + value.slice(cursorOffset)
+      nextCursorOffset -= 1
+    }
+  } else if (text.length > 0) {
+    nextValue = value.slice(0, cursorOffset) + text + value.slice(cursorOffset)
+    nextCursorOffset += text.length
+  }
+
+  nextCursorOffset = Math.max(0, Math.min(nextValue.length, nextCursorOffset))
+  return { kind: "update", value: nextValue, cursorOffset: nextCursorOffset }
+}
+
 function StyledTextInput({
   focus,
   onChange,
@@ -69,50 +135,13 @@ function StyledTextInput({
         return
       }
 
-      // Normalize CRLF/CR so pasted line endings become "\n" in the buffer.
-      const text = rawInput.replace(/\r\n?/g, "\n")
-      const isPaste = text.length > 1
-
-      // Shift+Enter composes a newline instead of submitting — only where
-      // the terminal reports the shift modifier on Enter. Many terminals
-      // send a bare Enter for Shift+Enter (indistinguishable here), so
-      // pasting a multi-line snippet remains the reliable way to compose.
-      if (key.return && key.shift) {
-        const composed = `${value.slice(0, cursorOffset)}\n${value.slice(cursorOffset)}`
-        setCursorOffset(cursorOffset + 1)
-        onChange(composed)
-        return
-      }
-
-      // A lone Enter keypress submits. A multi-character paste — even one
-      // containing newlines — is inserted into the buffer instead, so a
-      // multi-line snippet survives intact rather than being truncated to
-      // its first line and fired off prematurely.
-      if (!isPaste && (key.return || text === "\n")) {
+      const action = reduceTextKey(value, cursorOffset, rawInput, key, showCursor)
+      if (action.kind === "submit") {
         onSubmit(value)
         return
       }
-
-      let nextValue = value
-      let nextCursorOffset = cursorOffset
-
-      if (key.leftArrow) {
-        if (showCursor) nextCursorOffset -= 1
-      } else if (key.rightArrow) {
-        if (showCursor) nextCursorOffset += 1
-      } else if (key.backspace || key.delete) {
-        if (cursorOffset > 0) {
-          nextValue = value.slice(0, cursorOffset - 1) + value.slice(cursorOffset)
-          nextCursorOffset -= 1
-        }
-      } else if (text.length > 0) {
-        nextValue = value.slice(0, cursorOffset) + text + value.slice(cursorOffset)
-        nextCursorOffset += text.length
-      }
-
-      nextCursorOffset = Math.max(0, Math.min(nextValue.length, nextCursorOffset))
-      setCursorOffset(nextCursorOffset)
-      if (nextValue !== value) onChange(nextValue)
+      setCursorOffset(action.cursorOffset)
+      if (action.value !== value) onChange(action.value)
     },
     { isActive: focus },
   )
