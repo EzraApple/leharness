@@ -57,3 +57,12 @@ Index:
   $0.64 / 1h27m on local Docker — and identified the kernel's
   `DEFAULT_MAX_STEPS = 25` ceiling as the single biggest bottleneck (44
   of 51 failures hit it mid-productive-work).
+- `009-mcp-integration.md` — MCP client as a self-contained
+  `@leharness/mcp` package the products bundle (kernel stays untouched
+  except one additive `Tool.jsonSchema` field). Vendors the small,
+  stable client surface (jsonrpc + stdio/HTTP transports + OAuth flow)
+  rather than the full official SDK, leaning on 3 focused deps
+  (`eventsource-parser`, `pkce-challenge`, `jose`) for the dangerous
+  crypto bits. v1 = tools only, all three auth tiers (stdio / HTTP
+  bearer / OAuth+PKCE), config in `.leharness/mcp.json` matching the
+  Claude Code / Cursor / Cline format.
