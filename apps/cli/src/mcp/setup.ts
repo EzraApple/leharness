@@ -76,5 +76,5 @@ export async function setupMcp(options: SetupMcpOptions): Promise<McpSetupResult
 }
 
 function cliVersion(): string {
-  return process.env.npm_package_version ?? "0.3.1"
+  return process.env.npm_package_version ?? "0.4.0"
 }
