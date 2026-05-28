@@ -20,6 +20,7 @@ import {
 } from "@leharness/harness"
 import { runTui } from "@leharness/tui"
 import { ulid } from "ulid"
+import { setupMcp } from "./mcp/setup.js"
 import { LiveRenderer } from "./render.js"
 import { bashTool } from "./tools/bash.js"
 import { builtinTools } from "./tools/index.js"
@@ -90,10 +91,15 @@ export async function main(argv: string[]): Promise<number> {
     return 1
   }
 
+  // Connect configured MCP servers (.leharness/mcp.json) and fold their
+  // tools in alongside the builtins. Non-fatal: a broken server is
+  // skipped, the session proceeds with whatever connected.
+  const mcp = await setupMcp()
+
   const deps: HarnessDeps = {
     systemPrompt: CLI_SYSTEM_PROMPT,
     provider,
-    tools: builtinTools,
+    tools: [...builtinTools, ...mcp.tools],
     model: runtime.model,
     reasoningEffort: runtime.reasoningEffort,
     maxSteps: resolveMaxSteps(args.maxSteps),

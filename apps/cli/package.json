@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@leharness/harness": "workspace:*",
+    "@leharness/mcp": "workspace:*",
     "@leharness/tui": "workspace:*",
     "openai": "^6.34.0",
     "ulid": "^3.0.2",
