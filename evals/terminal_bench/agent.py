@@ -29,7 +29,7 @@ from harbor.models.agent.context import AgentContext
 # against a new leharness release so eval results stay reproducible
 # from (this commit, this constant). See evals/terminal_bench/RUNS.md
 # for the changelog of bench runs and what changed between them.
-LEHARNESS_NPM_VERSION = "0.3.1"
+LEHARNESS_NPM_VERSION = "0.4.0"
 
 # Bumped from the kernel default (50) because Terminal-Bench tasks
 # routinely need 50+ tool calls (compilation, multi-step debugging,

@@ -18,6 +18,10 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     name: "effort",
   },
   {
+    description: "Manage MCP servers (list, reconnect, auth, logout).",
+    name: "mcp",
+  },
+  {
     description: "Clear the visible transcript.",
     name: "clear",
   },

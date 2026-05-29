@@ -1,5 +1,5 @@
 {
-  "name": "@leharness/harness",
+  "name": "@leharness/mcp",
   "version": "0.4.0",
   "private": true,
   "type": "module",
@@ -19,8 +19,6 @@
     "build:watch": "tsc --watch"
   },
   "dependencies": {
-    "openai": "^6.34.0",
-    "ulid": "^3.0.2",
-    "zod": "^4.3.6"
+    "eventsource-parser": "^3.1.0"
   }
 }

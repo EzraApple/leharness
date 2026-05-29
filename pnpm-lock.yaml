@@ -29,6 +29,9 @@ importers:
       '@leharness/harness':
         specifier: workspace:*
         version: link:../../packages/harness
+      '@leharness/mcp':
+        specifier: workspace:*
+        version: link:../../packages/mcp
       '@leharness/tui':
         specifier: workspace:*
         version: link:../tui
@@ -51,6 +54,9 @@ importers:
       '@leharness/harness':
         specifier: workspace:*
         version: link:../../packages/harness
+      '@leharness/mcp':
+        specifier: workspace:*
+        version: link:../../packages/mcp
       cli-highlight:
         specifier: ^2.1.11
         version: 2.1.11
@@ -100,6 +106,12 @@ importers:
       zod:
         specifier: ^4.3.6
         version: 4.3.6
+
+  packages/mcp:
+    dependencies:
+      eventsource-parser:
+        specifier: ^3.1.0
+        version: 3.1.0
 
 packages:
 
@@ -703,6 +715,10 @@ packages:
   escape-string-regexp@2.0.0:
     resolution: {integrity: sha512-UpzcLCXolUWcNu5HtVMHYdXJjArjsF9C0aNnquZYY4uW/Vu0miy5YoWvbV345HauVvcAUnpRuhMMcqTcGOY2+w==}
     engines: {node: '>=8'}
+
+  eventsource-parser@3.1.0:
+    resolution: {integrity: sha512-kJezFj9YFAMLeORyi7aCLxLbD5/qWMQnoMVlVPyHIll7lgRJCc3JVln9Vgl9nwQi0YkMnhdGTMNn7CkRRAptMg==}
+    engines: {node: '>=18.0.0'}
 
   fd-package-json@2.0.0:
     resolution: {integrity: sha512-jKmm9YtsNXN789RS/0mSzOC1NUq9mkVd65vbSSVsKdjGvYXBuE4oWe2QOEoFeRmJg+lPuZxpmrfFclNhoRMneQ==}
@@ -1495,6 +1511,8 @@ snapshots:
   escalade@3.2.0: {}
 
   escape-string-regexp@2.0.0: {}
+
+  eventsource-parser@3.1.0: {}
 
   fd-package-json@2.0.0:
     dependencies:

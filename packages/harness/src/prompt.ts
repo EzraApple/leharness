@@ -193,10 +193,15 @@ function backgroundUpdateMessage(
 }
 
 function toHarnessTool(tool: Tool): HarnessTool {
+  // A pre-built JSON Schema (MCP / external tools) is used verbatim — no
+  // Zod round-trip. Otherwise convert the Zod schema forward.
+  const schemaJson =
+    tool.jsonSchema ??
+    (tool.schema !== undefined ? zodSchemaToJsonSchema(tool.schema) : { type: "object" })
   return {
     name: tool.name,
     description: tool.description,
-    schemaJson: zodSchemaToJsonSchema(tool.schema),
+    schemaJson,
   }
 }
 

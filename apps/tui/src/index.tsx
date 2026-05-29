@@ -8,11 +8,13 @@ import {
 } from "@leharness/harness"
 import { render } from "ink"
 import { TuiApp } from "./app.js"
+import type { McpControls } from "./mcp/types.js"
 
 export async function runTui(
   sessionId: string,
   deps: HarnessDeps,
   resuming: boolean,
+  mcp?: McpControls,
 ): Promise<void> {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     throw new Error("tui mode requires an interactive TTY")
@@ -23,6 +25,7 @@ export async function runTui(
   const app = render(
     <TuiApp
       deps={deps}
+      mcp={mcp}
       priorEvents={priorEvents}
       runPrompt={(text, invocationDeps, options) =>
         runPrompt(sessionId, text, invocationDeps, options)

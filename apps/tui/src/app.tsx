@@ -14,15 +14,19 @@ import {
   type RuntimeSettings,
   type Skill,
   subscribeToBackgroundUpdates,
+  type Tool,
   updateUserSettings,
 } from "@leharness/harness"
+import type { McpServerDetail } from "@leharness/mcp"
 import { Box, Text, useApp, useInput, useStdout } from "ink"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { ActiveTasks } from "./components/active-tasks.js"
+import { McpStatusLine } from "./components/mcp-status.js"
 import { Footer, Prompt } from "./components/prompt.js"
 import { QueuedMessages } from "./components/queued-messages.js"
 import { type MenuItem, SlashMenu } from "./components/slash-menu.js"
 import { Transcript } from "./components/transcript.js"
+import type { McpControls } from "./mcp/types.js"
 import { isSlashCommand, SLASH_COMMANDS } from "./slash/commands.js"
 import {
   expandSkillTokens,
@@ -47,11 +51,13 @@ type PickerItem =
 
 export function TuiApp({
   deps,
+  mcp,
   priorEvents,
   runPrompt,
   sessionId,
 }: {
   deps: HarnessDeps
+  mcp?: McpControls
   priorEvents: Event[]
   runPrompt: (
     text: string | undefined,
@@ -84,6 +90,10 @@ export function TuiApp({
     () => deps.reasoningEffort ?? defaultReasoningEffortForModel(deps.model, deps.provider.name),
   )
   const [queuedMessages, setQueuedMessages] = useState<QueuedMessage[]>([])
+  const [mcpServers, setMcpServers] = useState<Map<string, McpServerDetail>>(
+    () => mcp?.manager?.details() ?? new Map(),
+  )
+  const [mcpTools, setMcpTools] = useState<Tool[]>(() => mcp?.initialTools ?? [])
   const [transcript, setTranscript] = useState<TranscriptState>(() => {
     let state = initialTranscript()
     for (const event of priorEvents) state = reduceEvent(state, event)
@@ -108,8 +118,18 @@ export function TuiApp({
       model: selectedModel,
       reasoningEffort: currentModelSupportsReasoning ? reasoningEffort : undefined,
       systemPrompt: deps.systemPrompt,
+      // deps.tools is builtins-only for the TUI; fold in the live MCP
+      // tools so reconnect/auth changes take effect on the next prompt.
+      tools: [...deps.tools, ...mcpTools],
     }),
-    [currentModelSupportsReasoning, deps, reasoningEffort, selectedModel, selectedProvider],
+    [
+      currentModelSupportsReasoning,
+      deps,
+      mcpTools,
+      reasoningEffort,
+      selectedModel,
+      selectedProvider,
+    ],
   )
   const activeSlashCommands = useMemo(
     () =>
@@ -155,6 +175,21 @@ export function TuiApp({
   useEffect(() => {
     return () => abortRef.current?.abort()
   }, [])
+
+  // Track MCP server status + keep the tool set current. A server going
+  // ready/exited changes which tools are available, so re-adapt on any
+  // transition; the next invocation's activeDeps picks them up.
+  useEffect(() => {
+    if (mcp === undefined) return
+    const manager = mcp.manager
+    const sync = () => {
+      setMcpServers(manager.details())
+      setMcpTools(mcp.refreshTools())
+    }
+    const unsubscribe = manager.onStatusChange(sync)
+    sync()
+    return unsubscribe
+  }, [mcp])
 
   const autoInvocationScheduledRef = useRef(false)
   const startInvocationRef = useRef<(text: string | undefined) => Promise<void>>(async () => {})
@@ -595,6 +630,80 @@ export function TuiApp({
     closePicker()
   }
 
+  const appendSystemCell = (title: string, text: string) => {
+    setTranscript((prev) => appendCell(prev, { kind: "system", title, text }))
+  }
+
+  // /mcp [list|reconnect <s>|auth <s>|logout <s>]. Config edits are
+  // agent-led (it edits .leharness/mcp.json via file tools, guided by
+  // the leharness-tui skill) — these commands are the user-led ops only.
+  const runMcpCommand = async (text: string): Promise<void> => {
+    if (mcp === undefined) {
+      appendSystemCell("mcp", "MCP is unavailable in this session.")
+      return
+    }
+    // Pick up agent-led edits to .leharness/mcp.json: reload reconciles
+    // the manager's server set and connects any newly-added servers
+    // before we run the subcommand.
+    await mcp.reload()
+    const manager = mcp.manager
+    const parts = text.trim().split(/\s+/)
+    const sub = parts[1] ?? "list"
+    const server = parts[2]
+
+    if (sub === "list") {
+      const details = manager.details()
+      if (details.size === 0) {
+        appendSystemCell(
+          "mcp",
+          "No MCP servers configured. Ask me to add one, or edit .leharness/mcp.json.",
+        )
+        return
+      }
+      const lines: string[] = []
+      for (const [name, d] of details.entries()) {
+        lines.push(`${name} · ${d.status} · ${d.toolCount} tool(s)`)
+        if (d.error !== undefined) lines.push(`    ↳ ${d.error}`)
+        if (d.recentStderr !== undefined) {
+          for (const line of d.recentStderr.slice(-5)) lines.push(`      ${line}`)
+        }
+      }
+      appendSystemCell("mcp", lines.join("\n"))
+      return
+    }
+
+    if (server === undefined) {
+      appendSystemCell("mcp", `Usage: /mcp ${sub} <server>`)
+      return
+    }
+
+    try {
+      if (sub === "reconnect") {
+        appendSystemCell("mcp", `reconnecting ${server}…`)
+        await manager.reconnect(server)
+        appendSystemCell("mcp", `${server} · ${manager.details().get(server)?.status ?? "unknown"}`)
+      } else if (sub === "auth") {
+        appendSystemCell("mcp", `authorizing ${server} — a browser window should open…`)
+        await manager.authorizeServer(server)
+        appendSystemCell("mcp", `${server} · ${manager.details().get(server)?.status ?? "unknown"}`)
+      } else if (sub === "logout") {
+        await manager.logout(server)
+        appendSystemCell("mcp", `${server} · logged out (tokens cleared)`)
+      } else {
+        appendSystemCell("mcp", `unknown subcommand: ${sub}. Try list / reconnect / auth / logout.`)
+        return
+      }
+    } catch (err) {
+      appendSystemCell(
+        "mcp",
+        `${server} · error: ${err instanceof Error ? err.message : String(err)}`,
+      )
+    }
+    // Reflect any tool/status change immediately.
+    setMcpServers(manager.details())
+    setMcpTools(mcp.refreshTools())
+  }
+
   const submit = async (value: string) => {
     if (picker !== undefined) {
       selectPickerItem()
@@ -644,6 +753,11 @@ export function TuiApp({
         appendCell(prev, { kind: "system", title: "session", text: sessionId }),
       )
       clearComposer()
+      return
+    }
+    if (text === "/mcp" || text.startsWith("/mcp ")) {
+      clearComposer()
+      await runMcpCommand(text)
       return
     }
     const modelArgs = parseCommandArgs(text, "model")
@@ -719,6 +833,7 @@ export function TuiApp({
       />
       <QueuedMessages messages={queuedMessages} width={columns} />
       <ActiveTasks tasks={transcript.activeTasks} width={columns} />
+      <McpStatusLine servers={mcpServers} />
       <Prompt
         input={input}
         inputVersion={inputVersion}
