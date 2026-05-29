@@ -77,12 +77,13 @@ ingress -> invocation -> append invocation events -> run session loop
   One clear control loop that stays small, readable, and focused on orchestration.
 
   ```ts
-  // Let the model act and run its tool calls, repeating until it stops
-  // calling tools (or max-steps / abort).
   for (let step = 1; step <= maxSteps; step++) {
-    const prompt = compact(buildPrompt(session)) // compaction no-ops under budget
+    const prompt = compact(buildPrompt(session))
+
     const output = await callModel(prompt)
+
     if (output.toolCalls.length === 0) break
+
     await executeTools(output.toolCalls)
   }
   ```
