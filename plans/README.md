@@ -66,3 +66,11 @@ Index:
   crypto bits. v1 = tools only, all three auth tiers (stdio / HTTP
   bearer / OAuth+PKCE), config in `.leharness/mcp.json` matching the
   Claude Code / Cursor / Cline format.
+- `010-tool-agnostic-kernel.md` — make the kernel carry no opinions about
+  which tools exist. The async surface is already generic (`Tool.execute`
+  returns inline-or-handle; `TaskExecutor` / `SessionTaskServices`); the
+  coupling is package boundaries + `prepare-prompt` hard-importing the
+  built-in tools. Invert via a `Capability` hook (tools +
+  `augmentSystemPrompt`) so the kernel folds over capabilities it doesn't
+  name, then extract each into its own package (`@leharness/exec`,
+  `/subagents`, `/artifacts`, `/skills`) layered over the kernel.
