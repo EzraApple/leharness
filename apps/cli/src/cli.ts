@@ -351,6 +351,14 @@ Environment:
   DEEPSEEK_API_KEY          Required when using --provider deepseek
   LEHARNESS_OLLAMA_BASE_URL Override Ollama endpoint (default http://localhost:11434/v1)
   LEHARNESS_DEEPSEEK_BASE_URL Override DeepSeek endpoint (default https://api.deepseek.com)
+
+State & config (under .leharness/ in the cwd, or $LEHARNESS_HOME):
+  sessions/<id>/            Session event logs (resume with --session <id>)
+  skills/<name>/SKILL.md    Workspace skills (also reads .agents/skills, .claude/skills)
+  mcp.json                  MCP servers to connect (Claude Code format); manage in the TUI with /mcp
+  A repo-local .env is loaded before provider setup.
+
+In the TUI, /help lists slash commands (/model, /effort, /mcp, ...).
 `,
   )
 }
