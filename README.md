@@ -21,85 +21,23 @@ Also, the name exists because I dreamt up the project while I was in Paris.
 
 ## CLI
 
-The CLI is experimental and published as `leharness` on npm. It installs one
-command: `lh`.
-
-Install globally:
+Experimental, published on npm as `leharness` — it installs one command, `lh`.
 
 ```bash
-npm install -g leharness
-lh --help
+npm install -g leharness    # or run ad hoc: npx leharness@latest
+lh                          # interactive TUI
+lh "summarize this repo"    # one-shot — prints the response and exits
 ```
 
-Run without installing:
+It speaks OpenAI, DeepSeek, and Ollama, connects to MCP servers, and loads
+skills. Session state lives under `.leharness/` in the working directory
+(override with `LEHARNESS_HOME`).
 
-```bash
-npx leharness@latest --help
-```
+`lh --help` is the reference for providers, flags, environment variables, and
+where state lives. Inside the TUI, `/help` lists the slash commands (`/model`,
+`/effort`, `/mcp`, …).
 
-Update an existing global install:
-
-```bash
-npm install -g leharness@latest
-```
-
-Start an interactive session:
-
-```bash
-lh
-```
-
-Run one prompt and exit:
-
-```bash
-lh "summarize this repo"
-```
-
-Use OpenAI:
-
-```bash
-export OPENAI_API_KEY=...
-lh --provider openai
-```
-
-Use DeepSeek:
-
-```bash
-export DEEPSEEK_API_KEY=...
-lh --provider deepseek
-lh --provider deepseek --model deepseek-v4-pro
-```
-
-Use Ollama:
-
-```bash
-ollama pull qwen3.6:27b-coding-nvfp4
-lh --provider ollama
-```
-
-In the TUI, `/model` opens a client-side model picker and `/effort` opens a
-client-side reasoning effort picker for supported models:
-
-```text
-/model
-/effort
-```
-
-See `lh --help` for the full set of options and environment variables.
-
-The CLI also reads a repo-local `.env` file before provider setup.
-
-Sessions are saved under `.leharness/sessions` in the current working directory
-unless `LEHARNESS_HOME` is set. Workspace-owned skills can live under
-`.leharness/skills/<name>/SKILL.md`; inherited workspace skill locations
-`.agents/skills` and `.claude/skills` are also discovered.
-
-For local package development:
-
-```bash
-pnpm install
-pnpm package:verify
-```
+Local development: `pnpm install && pnpm package:verify`.
 
 ## Why
 
@@ -139,20 +77,14 @@ ingress -> invocation -> append invocation events -> run session loop
   One clear control loop that stays small, readable, and focused on orchestration.
 
   ```ts
-  while (true) {
-    const events = loadEvents(sessionId)
-    const session = projectSession(events)
+  for (let step = 1; step <= maxSteps; step++) {
+    const prompt = compact(buildPrompt(session))
 
-    if (shouldCompact(session)) {
-      compact(session)
-      continue
-    }
+    const output = await callModel(prompt)
 
-    const prompt = buildPrompt(session)
-    const modelOutput = await callModel(prompt)
-    const toolResults = await executeToolCalls(session, modelOutput.toolCalls)
+    if (output.toolCalls.length === 0) break
 
-    if (!shouldContinue(session, modelOutput, toolResults)) break
+    await executeTools(output.toolCalls)
   }
   ```
 
@@ -163,11 +95,11 @@ ingress -> invocation -> append invocation events -> run session loop
   The event log should be the source of truth for what happened in a session.
 
   ```json
-  {"type":"invocation.received","kind":"message","text":"fix the failing test"}
-  {"type":"step.started","step_id":"step_1"}
-  {"type":"model.completed","tool_calls":[{"tool":"bash","execution":"auto"}]}
-  {"type":"task.started","task_id":"task_42","kind":"bash"}
-  {"type":"task.completed","task_id":"task_42","summary":"2 tests still failing"}
+  {"type":"invocation.received","text":"fix the failing test"}
+  {"type":"step.started","stepNumber":1}
+  {"type":"model.completed","toolCalls":[{"id":"call_1","name":"bash","args":{"command":"npm test"}}]}
+  {"type":"task.started","taskId":"task_42","kind":"shell"}
+  {"type":"task.completed","taskId":"task_42","summary":"2 tests still failing"}
   ```
 
 - `Session derived from events`
@@ -239,13 +171,12 @@ ingress -> invocation -> append invocation events -> run session loop
 
 ## Status
 
-The kernel — loop, event log, tool runtime, background tasks, subagents, artifacts, compaction — is built. Per-feature design docs live in [`plans/`](./plans/).
+The kernel — loop, event log, tool runtime, background tasks, subagents, artifacts, compaction — is built, and the CLI on top of it connects to MCP servers. Per-feature design docs live in [`plans/`](./plans/).
 
 ## What's Next
 
 - web inspector
 - coding-agent wrapper
-- MCP integration
 - tool-agnostic kernel: the bigger built-in features (tasks, subagents, artifacts, skills) currently ship their model-facing tools inside the kernel. Pull those into a modular "default tools" layer over the kernel services, so the core loop carries no opinions about which tools exist
 - branchable session history
 - VM runners
