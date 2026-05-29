@@ -43,8 +43,8 @@ to `-n 5`**. Full 89-task run at `-n 5` takes roughly 1.5–2 hours.
 DEEPSEEK_API_KEY=... DAYTONA_API_KEY=... harbor run \
   --dataset terminal-bench@2.0 \
   --agent-import-path agent:LeharnessAgent \
-  --sandbox daytona \
-  --n-concurrent 15
+  -e daytona \
+  --n-concurrent 2
 ```
 
 ## After a run
