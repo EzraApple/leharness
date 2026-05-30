@@ -67,9 +67,11 @@ await runInvocation("smoke-capabilities-task", "check task capability", {
 })
 
 const taskToolNames = toolNames(taskRequests[0])
-assert(taskToolNames.includes("base_tool"), "task capability should keep caller tools")
-assert(taskToolNames.includes("wait_task"), "task capability should expose task tools")
-assert(!taskToolNames.includes("read_artifact"), "task capability should not expose read_artifact")
+assert(
+  JSON.stringify(taskToolNames) ===
+    JSON.stringify(["base_tool", "wait_task", "read_task", "cancel_task"]),
+  `task capability should expose only caller + task tools; got ${JSON.stringify(taskToolNames)}`,
+)
 
 const customRequests = []
 const customProvider = {

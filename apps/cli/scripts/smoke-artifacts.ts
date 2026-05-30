@@ -101,10 +101,10 @@ function baseDeps(
     },
   )
   const events = await runInvocation(sessionId, "go", baseDeps(provider, tool))
-  assert.equal(
-    requestedToolNames.includes("read_artifact"),
-    false,
-    "read_artifact should not be model-facing",
+  assert.deepEqual(
+    [...new Set(requestedToolNames)],
+    ["echo"],
+    "artifact smoke should expose only caller tools",
   )
   const created = events.find((event) => event.type === "artifact.created")
   assert.ok(created, "expected artifact.created event")
