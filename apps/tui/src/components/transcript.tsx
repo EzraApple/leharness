@@ -236,7 +236,7 @@ function pushTool(rows: TranscriptRow[], cell: Cell, width: number): void {
 function pushBackgroundTool(rows: TranscriptRow[], cell: Cell, width: number): void {
   const marker = cell.background
   if (marker === undefined) return
-  const idSuffix = `· background ${shortTaskId(marker.taskId)}`
+  const idSuffix = `· ${backgroundTaskKindLabel(cell)} ${shortTaskId(marker.taskId)}`
   const title = renderToolDisplayTitle(cell)
   const startedTitle = renderBackgroundStartedTitle(cell)
 
@@ -334,6 +334,10 @@ function pushRunningSubagentBox(
 
 function isDelegatedTask(cell: Cell): boolean {
   return cell.title === "delegated"
+}
+
+function backgroundTaskKindLabel(cell: Cell): string {
+  return isDelegatedTask(cell) ? "subagent" : "background"
 }
 
 function delegatedTaskTarget(cell: Cell): string {

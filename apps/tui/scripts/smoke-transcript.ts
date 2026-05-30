@@ -215,6 +215,10 @@ assert.equal(
   completedSubagentRows.some((row) => row.text.includes("ran subagent")),
   true,
 )
+assert.equal(
+  completedSubagentRows.some((row) => row.text.includes("background")),
+  false,
+)
 
 const poemFiles = [
   "poems/after-rain.md",
