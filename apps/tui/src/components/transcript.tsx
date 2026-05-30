@@ -1,14 +1,13 @@
 import type { HarnessDeps } from "@leharness/harness"
+import type { McpServerDetail } from "@leharness/mcp"
 import { Box, Text } from "ink"
 import { useEffect, useMemo, useState } from "react"
 import stringWidth from "string-width"
 import wrapAnsi from "wrap-ansi"
 import type { Cell, TranscriptState } from "../state/types.js"
+import { color, glyph } from "../theme.js"
 import { renderMarkdown } from "../utils/markdown.js"
 import { SessionHeader } from "./header.js"
-
-const ASSISTANT_MARKER = "• "
-const RAIL_INDENT = "  "
 
 interface TranscriptRow {
   backgroundColor?: string
@@ -22,6 +21,7 @@ interface TranscriptRow {
 
 export function Transcript({
   deps,
+  mcpServers,
   priorEventCount,
   running,
   sessionId,
@@ -29,6 +29,7 @@ export function Transcript({
   width,
 }: {
   deps: HarnessDeps
+  mcpServers: Map<string, McpServerDetail>
   priorEventCount: number
   running: boolean
   sessionId: string
@@ -57,6 +58,7 @@ export function Transcript({
     <Box flexDirection="column" marginTop={1}>
       <SessionHeader
         deps={deps}
+        mcpServers={mcpServers}
         priorEventCount={priorEventCount}
         sessionId={sessionId}
         width={width - 2}
@@ -76,7 +78,7 @@ function TranscriptRowText({ row }: { row: TranscriptRow }) {
       <Text backgroundColor={row.backgroundColor} color={row.color}>
         {row.marker === undefined ? null : <Text color={row.markerColor}>{row.marker}</Text>}
         {row.text}
-        <Text color="cyan">{ellipsis}</Text>
+        <Text color={color.accent}>{ellipsis}</Text>
       </Text>
     )
   }
@@ -163,10 +165,10 @@ function buildRows(
         if (options.running) {
           pushThinking(rows, cell, options.width)
         } else {
-          pushDottedWrapped(rows, cell, " ", options.width, "gray", "gray")
+          pushHeadlineWrapped(rows, cell, " ", options.width, color.meta, color.meta)
         }
       } else {
-        pushDottedMarkdown(rows, cell, text, options.width)
+        pushHeadlineMarkdown(rows, cell, text, options.width)
       }
     } else if (cell.kind === "tool") {
       if (previousKind !== undefined && previousKind !== "assistant" && previousKind !== "tool") {
@@ -175,13 +177,13 @@ function buildRows(
       pushTool(rows, cell, options.width)
     } else if (cell.kind === "error") {
       pushBlank(rows, cell.id)
-      pushDottedWrapped(
+      pushHeadlineWrapped(
         rows,
         cell,
         `${cell.title ?? ""}\n${cell.text}`.trim(),
         options.width,
-        "red",
-        "red",
+        color.failure,
+        color.failure,
       )
     } else {
       if (cell.text.trim().length > 0) pushSystem(rows, cell, options.width)
@@ -196,16 +198,17 @@ export const transcriptTestInternals = {
 }
 
 function pushThinking(rows: TranscriptRow[], cell: Cell, width: number): void {
-  pushDottedWrapped(rows, cell, "thinking", width, "gray", "gray", undefined, true)
+  pushHeadlineWrapped(rows, cell, "thinking", width, color.meta, color.meta, undefined, true)
 }
 
 function pushUserWrapped(rows: TranscriptRow[], cell: Cell, text: string, width: number): void {
-  const prefix = RAIL_INDENT
-  const bodyWidth = Math.max(8, width - visibleWidth(prefix))
-  for (const [index, line] of wrapText(text, bodyWidth).entries()) {
-    const rowText = `${prefix}${line}`
-    pushLine(rows, cell, `user-${index}`, padToWidth(rowText, width), undefined, "#2a2a2a")
-  }
+  pushWrapped(rows, cell, text, width, {
+    backgroundColor: color.userBg,
+    contMarker: glyph.rail,
+    firstMarker: glyph.user,
+    markerColor: color.userChevron,
+    partPrefix: "user",
+  })
 }
 
 function pushTool(rows: TranscriptRow[], cell: Cell, width: number): void {
@@ -220,18 +223,14 @@ function pushTool(rows: TranscriptRow[], cell: Cell, width: number): void {
   }
 
   const failed = cell.status === "failed" || cell.outcome === "failed"
-  const detail = expandedDetail(cell)
-  const text = compactToolLine(title, cell)
-  pushDottedWrapped(
-    rows,
-    cell,
-    [text, detail]
-      .filter((part): part is string => part !== undefined && part.length > 0)
-      .join("\n"),
+  pushTreeBlock(rows, cell, {
+    body: toolBody(cell),
+    bodyColor: failed ? color.failure : color.toolMeta,
+    headline: toolHeadline(title, cell),
+    headlineMarkerColor: failed ? color.failure : color.tool,
+    headlineTextColor: failed ? color.failure : color.toolMeta,
     width,
-    failed ? "red" : "green",
-    failed ? "red" : "gray",
-  )
+  })
 }
 
 function pushBackgroundTool(rows: TranscriptRow[], cell: Cell, width: number): void {
@@ -239,39 +238,36 @@ function pushBackgroundTool(rows: TranscriptRow[], cell: Cell, width: number): v
   if (marker === undefined) return
   const idSuffix = `· background ${shortTaskId(marker.taskId)}`
   const title = renderToolDisplayTitle(cell)
+
   if (marker.phase === "started") {
-    const text = `${title} · started in background · ${shortTaskId(marker.taskId)}`
-    pushDottedWrapped(rows, cell, text, width, "yellow", "gray", undefined, false, "bg-started")
+    pushTreeBlock(rows, cell, {
+      headline: `${title} · started in background · ${shortTaskId(marker.taskId)}`,
+      headlineMarkerColor: color.background,
+      headlineTextColor: color.toolMeta,
+      width,
+    })
     return
   }
   if (marker.phase === "completed") {
-    const text = `${compactToolLine(title, cell)} ${idSuffix}`
-    const detail = expandedDetail(cell)
-    pushDottedWrapped(
-      rows,
-      cell,
-      [text, detail]
-        .filter((part): part is string => part !== undefined && part.length > 0)
-        .join("\n"),
+    pushTreeBlock(rows, cell, {
+      body: toolBody(cell),
+      bodyColor: color.toolMeta,
+      headline: `${toolHeadline(title, cell)} ${idSuffix}`,
+      headlineMarkerColor: color.tool,
+      headlineTextColor: color.toolMeta,
       width,
-      "green",
-      "gray",
-    )
+    })
     return
   }
   if (marker.phase === "failed") {
-    const text = `${compactToolLine(title, cell)} ${idSuffix} failed`
-    const detail = expandedDetail(cell)
-    pushDottedWrapped(
-      rows,
-      cell,
-      [text, detail]
-        .filter((part): part is string => part !== undefined && part.length > 0)
-        .join("\n"),
+    pushTreeBlock(rows, cell, {
+      body: toolBody(cell),
+      bodyColor: color.failure,
+      headline: `${toolHeadline(title, cell)} ${idSuffix} failed`,
+      headlineMarkerColor: color.failure,
+      headlineTextColor: color.failure,
       width,
-      "red",
-      "red",
-    )
+    })
     return
   }
   // cancelled
@@ -281,8 +277,12 @@ function pushBackgroundTool(rows: TranscriptRow[], cell: Cell, width: number): v
       : marker.reason === "parent"
         ? "parent"
         : "user"
-  const text = `${title} ${idSuffix} cancelled (${reasonText})`
-  pushDottedWrapped(rows, cell, text, width, "yellow", "yellow", undefined, false, "bg-cancelled")
+  pushTreeBlock(rows, cell, {
+    headline: `${title} ${idSuffix} cancelled (${reasonText})`,
+    headlineMarkerColor: color.cancelled,
+    headlineTextColor: color.cancelled,
+    width,
+  })
 }
 
 function shortTaskId(id: string, head = 12): string {
@@ -291,12 +291,33 @@ function shortTaskId(id: string, head = 12): string {
 
 function pushSystem(rows: TranscriptRow[], cell: Cell, width: number): void {
   pushBlank(rows, cell.id)
-  const color = cell.outcome === "failed" ? "red" : cell.outcome === "cancelled" ? "yellow" : "gray"
-  pushDottedWrapped(rows, cell, cell.text.trim(), width, color, color)
+  const tone =
+    cell.outcome === "failed"
+      ? color.failure
+      : cell.outcome === "cancelled"
+        ? color.cancelled
+        : color.meta
+  pushWrapped(rows, cell, cell.text.trim(), width, {
+    contMarker: glyph.rail,
+    firstMarker: glyph.meta,
+    markerColor: tone,
+    partPrefix: "sys",
+    textColor: tone,
+  })
 }
 
 function pushPendingTool(rows: TranscriptRow[], cell: Cell, text: string, width: number): void {
-  pushDottedWrapped(rows, cell, text, width, "yellow", "yellow", undefined, true, "pending")
+  pushHeadlineWrapped(
+    rows,
+    cell,
+    text,
+    width,
+    color.pending,
+    color.pending,
+    undefined,
+    true,
+    "pending",
+  )
 }
 
 function renderToolDisplayTitle(cell: Cell): string {
@@ -322,11 +343,28 @@ function formatToolLabel(value: string): string {
   return value.replaceAll("_", " ").toLowerCase()
 }
 
-function compactToolLine(title: string, cell: Cell): string {
+// The agent "block" for a tool: a `⏺ verb target` headline and, for compact
+// file edits, the change summary folded inline (`edited a.ts · changed …`).
+function toolHeadline(title: string, cell: Cell): string {
   const text = cell.text.trim()
-  if (text.length === 0) return title
-  if (!isCompactFileTool(cell) || text.includes("\n")) return [title, text].join("\n")
-  return `${title} · ${lowerFirst(text)}`
+  if (text.length > 0 && isCompactFileTool(cell) && !text.includes("\n")) {
+    return `${title} · ${lowerFirst(text)}`
+  }
+  return title
+}
+
+// The output that hangs under the headline on a `⎿` connector: the tool's
+// summary/output plus any expanded detail. Returns undefined when the summary
+// was already folded into the headline (compact edits) or there's nothing.
+function toolBody(cell: Cell): string | undefined {
+  const text = cell.text.trim()
+  const summary =
+    text.length === 0 || (isCompactFileTool(cell) && !text.includes("\n")) ? undefined : text
+  const detail = expandedDetail(cell)
+  const joined = [summary, detail]
+    .filter((part): part is string => part !== undefined && part.length > 0)
+    .join("\n")
+  return joined.length > 0 ? joined : undefined
 }
 
 function isCompactFileTool(cell: Cell): boolean {
@@ -337,13 +375,6 @@ function lowerFirst(value: string): string {
   const first = value[0]
   if (first === undefined) return value
   return `${first.toLowerCase()}${value.slice(1)}`
-}
-
-function indentDetail(text: string): string {
-  return text
-    .split("\n")
-    .map((line) => `  ${line}`)
-    .join("\n")
 }
 
 function expandedDetail(cell: Cell): string | undefined {
@@ -360,39 +391,72 @@ function expandedDetail(cell: Cell): string | undefined {
     .filter((line) => !summaryLines.has(line.trim()))
     .join("\n")
     .trim()
-  return detail.length > 0 ? indentDetail(detail) : undefined
+  return detail.length > 0 ? detail : undefined
 }
 
-function pushDottedWrapped(
+// A tree block: a headline marked with `⏺`, and optional output hanging
+// under it on a `⎿` connector (continuation lines align under the marker).
+function pushTreeBlock(
+  rows: TranscriptRow[],
+  cell: Cell,
+  opts: {
+    body?: string
+    bodyColor?: string
+    headline: string
+    headlineMarkerColor?: string
+    headlineTextColor?: string
+    width: number
+  },
+): void {
+  pushWrapped(rows, cell, opts.headline, opts.width, {
+    contMarker: glyph.rail,
+    firstMarker: glyph.headline,
+    markerColor: opts.headlineMarkerColor,
+    partPrefix: "head",
+    textColor: opts.headlineTextColor,
+  })
+  if (opts.body !== undefined && opts.body.length > 0) {
+    pushWrapped(rows, cell, opts.body, opts.width, {
+      contMarker: glyph.rail,
+      firstMarker: glyph.connector,
+      markerColor: opts.bodyColor,
+      partPrefix: "body",
+      textColor: opts.bodyColor,
+    })
+  }
+}
+
+// A single `⏺`-headed block with no connector body — assistant prose,
+// errors, the thinking placeholder, and pending tools all share this shape.
+function pushHeadlineWrapped(
   rows: TranscriptRow[],
   cell: Cell,
   text: string,
   width: number,
   markerColor?: string,
-  color?: string,
+  textColor?: string,
   backgroundColor?: string,
   spinner?: boolean,
   partPrefix = "dot",
 ): void {
-  const markerWidth = visibleWidth(ASSISTANT_MARKER)
-  const bodyWidth = Math.max(8, width - markerWidth)
-  for (const [index, line] of wrapText(text, bodyWidth).entries()) {
-    pushLine(
-      rows,
-      cell,
-      `${partPrefix}-${index}`,
-      padToWidth(line, bodyWidth),
-      color,
-      backgroundColor,
-      spinner && index === 0,
-      index === 0 ? ASSISTANT_MARKER : RAIL_INDENT,
-      markerColor,
-    )
-  }
+  pushWrapped(rows, cell, text, width, {
+    backgroundColor,
+    contMarker: glyph.rail,
+    firstMarker: glyph.headline,
+    markerColor,
+    partPrefix,
+    spinner,
+    textColor,
+  })
 }
 
-function pushDottedMarkdown(rows: TranscriptRow[], cell: Cell, text: string, width: number): void {
-  const markerWidth = visibleWidth(ASSISTANT_MARKER)
+function pushHeadlineMarkdown(
+  rows: TranscriptRow[],
+  cell: Cell,
+  text: string,
+  width: number,
+): void {
+  const markerWidth = visibleWidth(glyph.headline)
   const bodyWidth = Math.max(8, width - markerWidth)
   const rendered = renderMarkdown(text, bodyWidth)
   for (const [index, line] of wrapText(rendered, bodyWidth).entries()) {
@@ -404,7 +468,44 @@ function pushDottedMarkdown(rows: TranscriptRow[], cell: Cell, text: string, wid
       undefined,
       undefined,
       false,
-      index === 0 ? ASSISTANT_MARKER : RAIL_INDENT,
+      index === 0 ? glyph.headline : glyph.rail,
+    )
+  }
+}
+
+// Wrap `text` to the available width and emit one row per line, marking the
+// first line with `firstMarker` and continuations with `contMarker` so the
+// body stays aligned under the marker.
+function pushWrapped(
+  rows: TranscriptRow[],
+  cell: Cell,
+  text: string,
+  width: number,
+  opts: {
+    backgroundColor?: string
+    contMarker: string
+    firstMarker: string
+    markerColor?: string
+    pad?: boolean
+    partPrefix?: string
+    spinner?: boolean
+    textColor?: string
+  },
+): void {
+  const markerWidth = visibleWidth(opts.firstMarker)
+  const bodyWidth = Math.max(8, width - markerWidth)
+  const prefix = opts.partPrefix ?? "row"
+  for (const [index, line] of wrapText(text, bodyWidth).entries()) {
+    pushLine(
+      rows,
+      cell,
+      `${prefix}-${index}`,
+      opts.pad === false ? line : padToWidth(line, bodyWidth),
+      opts.textColor,
+      opts.backgroundColor,
+      opts.spinner === true && index === 0,
+      index === 0 ? opts.firstMarker : opts.contMarker,
+      opts.markerColor,
     )
   }
 }
@@ -418,7 +519,7 @@ function pushLine(
   cell: Cell,
   part: string,
   text: string,
-  color?: string,
+  textColor?: string,
   backgroundColor?: string,
   spinner?: boolean,
   marker?: string,
@@ -426,7 +527,7 @@ function pushLine(
 ): void {
   rows.push({
     backgroundColor,
-    color,
+    color: textColor,
     id: `${cell.id}:${part}:${rows.length}`,
     marker,
     markerColor,

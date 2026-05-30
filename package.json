@@ -18,7 +18,7 @@
     "smoke": "pnpm smoke:harness && pnpm smoke:mcp && pnpm smoke:apps",
     "smoke:harness": "pnpm -r build && node packages/harness/scripts/smoke.mjs",
     "smoke:mcp": "pnpm -r build && node packages/mcp/scripts/smoke/stdio-roundtrip.mjs && node packages/mcp/scripts/smoke/manager-sync.mjs",
-    "smoke:apps": "pnpm -r build && pnpm exec tsx apps/cli/scripts/smoke-edit-file.ts && pnpm exec tsx apps/cli/scripts/smoke-background-tasks.ts && pnpm exec tsx apps/cli/scripts/smoke-bash-runtime.ts && pnpm exec tsx apps/cli/scripts/smoke-subagents.ts && pnpm exec tsx apps/cli/scripts/smoke-artifacts.ts && pnpm exec tsx apps/cli/scripts/smoke-compaction-e2e.ts && pnpm exec tsx apps/cli/scripts/smoke-mcp-adapter.ts && pnpm exec tsx apps/cli/scripts/smoke-oauth-loopback.ts && pnpm exec tsx apps/tui/scripts/smoke-transcript.ts && pnpm exec tsx apps/tui/scripts/smoke-prompt-input.ts"
+    "smoke:apps": "pnpm -r build && pnpm exec tsx apps/cli/scripts/smoke-edit-file.ts && pnpm exec tsx apps/cli/scripts/smoke-background-tasks.ts && pnpm exec tsx apps/cli/scripts/smoke-bash-runtime.ts && pnpm exec tsx apps/cli/scripts/smoke-subagents.ts && pnpm exec tsx apps/cli/scripts/smoke-artifacts.ts && pnpm exec tsx apps/cli/scripts/smoke-compaction-e2e.ts && pnpm exec tsx apps/cli/scripts/smoke-mcp-adapter.ts && pnpm exec tsx apps/cli/scripts/smoke-oauth-loopback.ts && pnpm exec tsx apps/tui/scripts/smoke-transcript.ts && pnpm exec tsx apps/tui/scripts/smoke-prompt-input.ts && pnpm exec tsx apps/tui/scripts/smoke-picker.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.12",

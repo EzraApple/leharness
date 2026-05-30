@@ -2,6 +2,7 @@ import { Box, Text } from "ink"
 import stringWidth from "string-width"
 import wrapAnsi from "wrap-ansi"
 import type { QueuedMessage } from "../state/types.js"
+import { color } from "../theme.js"
 
 const MAX_VISIBLE_MESSAGES = 4
 
@@ -15,12 +16,12 @@ export function QueuedMessages({ messages, width }: { messages: QueuedMessage[];
   return (
     <Box flexDirection="column" marginTop={1}>
       {visible.map((message) => (
-        <Text color="gray" key={message.id}>
+        <Text color={color.meta} key={message.id}>
           {formatQueuedRow(message.text, rowWidth)}
         </Text>
       ))}
       {hidden > 0 ? (
-        <Text color="gray">{padToWidth(`┃ + ${hidden} more queued`, rowWidth)}</Text>
+        <Text color={color.meta}>{padToWidth(`┃ + ${hidden} more queued`, rowWidth)}</Text>
       ) : null}
     </Box>
   )

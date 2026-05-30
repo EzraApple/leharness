@@ -1,6 +1,7 @@
 import { Box, Text, useInput } from "ink"
 import type { ReactNode } from "react"
 import { useEffect, useMemo, useState } from "react"
+import { color, glyph } from "../theme.js"
 
 export function Prompt({
   input,
@@ -19,8 +20,10 @@ export function Prompt({
   slashNames: Set<string>
   submit: (value: string) => void
 }) {
+  const accent = running ? color.pending : color.accent
   return (
-    <Box borderColor={running ? "yellow" : "cyan"} borderStyle="single" marginTop={1} paddingX={1}>
+    <Box borderColor={accent} borderStyle="single" marginTop={1} paddingX={1}>
+      <Text color={accent}>{glyph.user}</Text>
       <StyledTextInput
         focus
         key={inputVersion}
@@ -51,6 +54,7 @@ export function reduceTextKey(
   key: {
     return?: boolean
     shift?: boolean
+    meta?: boolean
     leftArrow?: boolean
     rightArrow?: boolean
     backspace?: boolean
@@ -60,19 +64,20 @@ export function reduceTextKey(
 ): TextKeyAction {
   // Normalize CRLF/CR so pasted line endings become "\n" in the buffer.
   const text = rawInput.replace(/\r\n?/g, "\n")
-  const isPaste = text.length > 1
 
-  // Shift+Enter composes a newline instead of submitting — only where the
-  // terminal reports the shift modifier on Enter. Many terminals send a
-  // bare Enter for Shift+Enter (indistinguishable here), so pasting a
-  // multi-line snippet remains the reliable way to compose.
-  if (key.return && key.shift) {
+  // Compose a newline instead of submitting on Option/Alt+Enter (Ink
+  // reports this as meta+Enter), or on Shift+Enter where the terminal
+  // reports the modifier. Most terminals send a bare CR for Shift+Enter,
+  // so Option+Enter is the reliable newline; pasting multi-line text works.
+  if (key.return && (key.shift || key.meta)) {
     return {
       kind: "update",
       value: `${value.slice(0, cursorOffset)}\n${value.slice(cursorOffset)}`,
       cursorOffset: cursorOffset + 1,
     }
   }
+
+  const isPaste = text.length > 1
 
   // A lone Enter submits. A multi-character paste — even one containing
   // newlines — is inserted instead, so a multi-line snippet survives
@@ -227,14 +232,16 @@ export function Footer({
   running: boolean
   status: string
 }) {
-  const action =
+  // One contextual hint for the action that matters right now; the full key
+  // list lives in /help so the footer stays quiet.
+  const hint =
     running && queuedCount > 0
-      ? "enter queue · empty enter interrupt"
+      ? "enter queue · empty enter to send now"
       : running
-        ? "enter queue"
+        ? "esc to interrupt"
         : queuedCount > 0
-          ? "empty enter send queued"
-          : "enter send"
+          ? "empty enter to send queued"
+          : "/help for commands"
   const elapsed = useElapsedRunTime(running)
   const usageLabel = formatContextUsage(contextUsage)
   const statusParts = [
@@ -246,11 +253,8 @@ export function Footer({
 
   return (
     <Box justifyContent="space-between">
-      <Text color="gray">{action}</Text>
-      <Text color="gray">
-        {statusParts.length === 0 ? "" : `${statusParts.join(" · ")} · `}esc abort · ctrl-c exit ·
-        terminal scrollback · /help
-      </Text>
+      <Text color={color.meta}>{hint}</Text>
+      <Text color={color.meta}>{statusParts.join(" · ")}</Text>
     </Box>
   )
 }
