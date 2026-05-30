@@ -3,8 +3,8 @@
 //   1. Auto-artifact for large tool output — file lands on disk, event
 //      log carries artifact.created + tool.completed.artifactId.
 //   2. Inline path unchanged for small tool output.
-//   3. read_artifact round-trip — full content recoverable from disk.
-//   4. Pagination via since_byte.
+//   3. Artifact stub carries a real file path and content is recoverable from disk.
+//   4. read_file can page through artifact files by line offset/limit.
 //   5. Background-task drain artifacts too — large task.completed
 //      Messages get the same treatment.
 
@@ -28,15 +28,21 @@ import {
   type ToolExecuteResult,
 } from "@leharness/harness"
 import { z } from "zod"
+import { readFileTool } from "../src/tools/read_file.js"
 
 const home = await fs.mkdtemp(path.join(os.tmpdir(), "leharness-smoke-artifacts-"))
 process.env.LEHARNESS_HOME = home
 
-function scriptedProvider(name: string, responses: ProviderResponse[]): Provider {
+function scriptedProvider(
+  name: string,
+  responses: ProviderResponse[],
+  onRequest?: (request: ProviderRequest) => void,
+): Provider {
   let index = 0
   return {
     name,
-    async call(_request: ProviderRequest): Promise<ProviderResponse> {
+    async call(request: ProviderRequest): Promise<ProviderResponse> {
+      onRequest?.(request)
       const next = responses[index++]
       if (next === undefined) throw new Error(`${name}: out of scripted responses`)
       return next
@@ -79,15 +85,27 @@ function baseDeps(
   enableShellRuntime(getOrCreateTaskServices(sessionId))
   const largeSize = AUTO_ARTIFACT_THRESHOLD_BYTES * 3
   const tool = makeEchoTool("abcdefghij")
-  const provider = scriptedProvider("p", [
-    {
-      text: "fetching",
-      toolCalls: [{ id: "call_1", name: "echo", args: { size: largeSize } }],
-      stopReason: "tool_calls",
+  const requestedToolNames: string[] = []
+  const provider = scriptedProvider(
+    "p",
+    [
+      {
+        text: "fetching",
+        toolCalls: [{ id: "call_1", name: "echo", args: { size: largeSize } }],
+        stopReason: "tool_calls",
+      },
+      { text: "done", toolCalls: [], stopReason: "stop" },
+    ],
+    (request) => {
+      requestedToolNames.push(...(request.tools?.map((tool) => tool.name) ?? []))
     },
-    { text: "done", toolCalls: [], stopReason: "stop" },
-  ])
+  )
   const events = await runInvocation(sessionId, "go", baseDeps(provider, tool))
+  assert.deepEqual(
+    [...new Set(requestedToolNames)],
+    ["echo"],
+    "artifact smoke should expose only caller tools",
+  )
   const created = events.find((event) => event.type === "artifact.created")
   assert.ok(created, "expected artifact.created event")
   assert.equal(created?.byteCount, largeSize)
@@ -100,7 +118,7 @@ function baseDeps(
   assert.ok(completed, "expected tool.completed for echo")
   assert.equal(typeof completed?.artifactId, "string")
   assert.equal(completed?.artifactId, created?.id)
-  assert.match(String(completed?.result ?? ""), /^\[artifact: artifact_/)
+  assert.match(String(completed?.result ?? ""), /^\[artifact: .+artifact_/)
   // File exists on disk and matches the original.
   const artifactPath = resolveArtifactPath(sessionId, String(created?.id ?? ""))
   const onDisk = await fs.readFile(artifactPath, "utf8")
@@ -134,7 +152,7 @@ function baseDeps(
   await disposeTaskServices(sessionId)
 }
 
-// 3. read_artifact round-trip.
+// 3. Artifact path round-trip.
 {
   const sessionId = `smoke-artifact-read-${Date.now()}`
   enableShellRuntime(getOrCreateTaskServices(sessionId))
@@ -161,83 +179,44 @@ function baseDeps(
   const created = events.find((event) => event.type === "artifact.created")
   assert.ok(created, "expected artifact.created")
   const artifactId = String(created?.id ?? "")
-  // Use the read_artifact path directly via the harness's exported function.
-  const onDisk = await fs.readFile(resolveArtifactPath(sessionId, artifactId), "utf8")
+  const artifactPath = resolveArtifactPath(sessionId, artifactId)
+  const completed = events.find(
+    (event) =>
+      event.type === "tool.completed" &&
+      (event.call as { name?: string } | undefined)?.name === "echo",
+  )
+  assert.match(String(completed?.result ?? ""), new RegExp(escapeRegExp(artifactPath)))
+  assert.match(String(completed?.result ?? ""), /Use read_file with path=/)
+  const onDisk = await fs.readFile(artifactPath, "utf8")
   assert.equal(onDisk.length, largeSize, "on-disk content matches the original size")
   await disposeTaskServices(sessionId)
 }
 
-// 4. Pagination via since_byte (using read_artifact tool through a second turn).
+// 4. Bounded line pagination via read_file against an artifact path.
 {
-  const sessionId = `smoke-artifact-paginate-${Date.now()}`
-  enableShellRuntime(getOrCreateTaskServices(sessionId))
-  const largeSize = 12_000
-  const tool = makeEchoTool("0123456789")
-  let pendingArtifactId: string | undefined
-  const provider: Provider = {
-    name: "p",
-    async call(request: ProviderRequest): Promise<ProviderResponse> {
-      if (pendingArtifactId === undefined) {
-        return {
-          text: "fetching",
-          toolCalls: [{ id: "call_echo", name: "echo", args: { size: largeSize } }],
-          stopReason: "tool_calls",
-        }
-      }
-      // Has the artifact result been delivered? Check the prompt for the stub.
-      const hasArtifactResult = request.messages.some(
-        (message) =>
-          message.role === "tool" &&
-          typeof message.content === "string" &&
-          message.content.includes(pendingArtifactId ?? "__never__"),
-      )
-      if (!hasArtifactResult) {
-        // shouldn't reach
-        return { text: "?", toolCalls: [], stopReason: "stop" }
-      }
-      // Has read_artifact been called yet?
-      const hasReadResult = request.messages.some(
-        (message) =>
-          message.role === "tool" &&
-          typeof message.content === "string" &&
-          message.content.startsWith("[artifact ") &&
-          message.content.includes("cursor 8000"),
-      )
-      if (!hasReadResult) {
-        return {
-          text: "paginating",
-          toolCalls: [
-            {
-              id: "call_read",
-              name: "read_artifact",
-              args: { artifact_id: pendingArtifactId, since_byte: 8000 },
-            },
-          ],
-          stopReason: "tool_calls",
-        }
-      }
-      return { text: "done", toolCalls: [], stopReason: "stop" }
-    },
-  }
-  // Run once to spawn the artifact; capture the id from events.
-  const firstEvents = await runInvocation(sessionId, "go", baseDeps(provider, tool))
-  const created = firstEvents.find((event) => event.type === "artifact.created")
-  pendingArtifactId = String(created?.id ?? "")
-  // Run again with the same provider closure — now it'll fire read_artifact.
-  const followUp = await runInvocation(sessionId, undefined, baseDeps(provider, tool))
-  const readResult = followUp.find(
-    (event) =>
-      event.type === "tool.completed" &&
-      (event.call as { name?: string } | undefined)?.name === "read_artifact",
+  const sessionId = `smoke-artifact-read-file-${Date.now()}`
+  const artifactPath = resolveArtifactPath(sessionId, "manual_artifact")
+  await fs.mkdir(path.dirname(artifactPath), { recursive: true })
+  await fs.writeFile(
+    artifactPath,
+    Array.from({ length: 500 }, (_, index) => `artifact line ${index + 1}`).join("\n"),
   )
-  assert.ok(readResult, "expected read_artifact tool.completed event")
-  const body = String(readResult?.result ?? "")
-  assert.match(body, /cursor 8000/)
-  // Slice from byte 8000 should be 4000 bytes (12000 - 8000).
-  const lines = body.split("\n")
-  const slice = lines.slice(1).join("\n")
-  assert.equal(slice.length, 4000)
-  await disposeTaskServices(sessionId)
+  const defaultResult = await readFileTool.execute({ path: artifactPath }, { sessionId })
+  assert.equal(defaultResult.kind, "ok")
+  assert.match(defaultResult.output, /^\s+1\tartifact line 1/m)
+  assert.match(defaultResult.output, /^\s+400\tartifact line 400/m)
+  assert.doesNotMatch(defaultResult.output, /^\s+401\tartifact line 401/m)
+  assert.match(defaultResult.output, /lines 1-400 of 500; next offset: 401/)
+
+  const pageResult = await readFileTool.execute(
+    { path: artifactPath, offset: 401, limit: 20 },
+    { sessionId },
+  )
+  assert.equal(pageResult.kind, "ok")
+  assert.match(pageResult.output, /^\s+401\tartifact line 401/m)
+  assert.match(pageResult.output, /^\s+420\tartifact line 420/m)
+  assert.doesNotMatch(pageResult.output, /^\s+421\tartifact line 421/m)
+  assert.match(pageResult.output, /lines 401-420 of 500; next offset: 421/)
 }
 
 // 5. Background-task drain artifacts too.
@@ -282,8 +261,12 @@ function baseDeps(
   assert.ok(created, "expected artifact.created for the large drained task result")
   const completed = drained.find((event) => event.type === "task.completed")
   assert.equal(typeof completed?.artifactId, "string", "task.completed should carry artifactId")
-  assert.match(String(completed?.result ?? ""), /^\[artifact: artifact_/)
+  assert.match(String(completed?.result ?? ""), /^\[artifact: .+artifact_/)
   await disposeTaskServices(sessionId)
 }
 
-console.log("smoke-artifacts: large/small/read/paginate/bg-drain paths ok")
+console.log("smoke-artifacts: large/small/path/read_file/bg-drain paths ok")
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}

@@ -61,7 +61,7 @@ const seenMainRequests = []
 const provider = {
   name: "cache-hit-fake",
   async call(req) {
-    if (req.tools === undefined) {
+    if (req.system?.startsWith("You produce concise handoff briefs") === true) {
       summarizerCallCount++
       return {
         text: SUMMARY_TEXT,
@@ -82,7 +82,6 @@ const baseDeps = {
   tools: [],
   model: "fake-main",
   systemPrompt: "smoke cache hit",
-  tasks: false,
   compaction: { maxInputTokens: budget, preserveRecentTurns: 1 },
 }
 

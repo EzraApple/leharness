@@ -10,9 +10,9 @@ import type { Event } from "../events.js"
 import type { ReasoningEffort } from "../models.js"
 import type { CompactionOptions } from "../prompt.js"
 import type { Provider, ToolCallDelta } from "../provider/index.js"
-import type { SkillOptions } from "../skills.js"
 import { getOrCreateTaskServices } from "../tasks.js"
 import type { Tool } from "../tools.js"
+import type { Capability } from "./capability.js"
 import { executeTools } from "./execute-tools.js"
 import { sendPrompt } from "./model-call.js"
 import { preparePrompt } from "./prepare-prompt.js"
@@ -39,9 +39,7 @@ export interface HarnessDeps {
   maxSteps?: number
   compaction?: CompactionOptions
   reasoningEffort?: ReasoningEffort
-  skills?: SkillOptions | false
-  tasks?: boolean
-  subagents?: boolean
+  capabilities?: Capability[]
 }
 
 export interface RunOptions {
@@ -61,8 +59,7 @@ export async function runInvocation(
   const { provider, maxSteps = DEFAULT_MAX_STEPS } = deps
   const signal = options.signal
   const invocation = await loadInvocationState(sessionId, options)
-  const tasksEnabled = deps.tasks !== false
-  const taskServices = tasksEnabled ? getOrCreateTaskServices(sessionId) : undefined
+  const taskServices = getOrCreateTaskServices(sessionId)
 
   if (userText !== undefined && userText.length > 0) {
     await invocation.recordEvent("invocation.received", {
@@ -80,15 +77,13 @@ export async function runInvocation(
     })
   }
 
-  if (taskServices !== undefined) {
-    await drainTaskQueue(invocation, taskServices)
-    await reapOrphanTasks(invocation, taskServices)
-  }
+  await drainTaskQueue(invocation, taskServices)
+  await reapOrphanTasks(invocation, taskServices)
 
   for (let stepNumber = 1; stepNumber <= maxSteps; stepNumber++) {
     if (aborted(signal)) return endInvocation(invocation, "cancelled")
 
-    if (stepNumber > 1 && taskServices !== undefined) {
+    if (stepNumber > 1) {
       await drainTaskQueue(invocation, taskServices)
     }
 

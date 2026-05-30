@@ -17,6 +17,7 @@
 
 import { ulid } from "ulid"
 import { z } from "zod"
+import type { Capability } from "./core/capability.js"
 import type { Event, RecordEvent } from "./events.js"
 import { loadEvents } from "./events.js"
 import type { ReasoningEffort } from "./models.js"
@@ -32,6 +33,7 @@ import {
   type TaskExecutor,
   type TaskRegistry,
   type TaskSnapshot,
+  taskManagementCapability,
 } from "./tasks.js"
 import type { Tool, ToolContext, ToolExecuteResult } from "./tools.js"
 
@@ -114,8 +116,7 @@ export function createSubagentExecutor(deps: {
     systemPrompt: string
     reasoningEffort?: ReasoningEffort
     maxSteps?: number
-    tasks: boolean
-    subagents: boolean
+    capabilities: Capability[]
   } {
     return {
       provider: deps.defaults.provider,
@@ -124,8 +125,7 @@ export function createSubagentExecutor(deps: {
       systemPrompt: preset?.systemPrompt ?? deps.defaults.systemPrompt,
       reasoningEffort: preset?.reasoningEffort ?? deps.defaults.reasoningEffort,
       maxSteps: preset?.maxSteps ?? deps.defaults.maxSteps,
-      tasks: true,
-      subagents: false, // no nested subagents in v1
+      capabilities: [taskManagementCapability()],
     }
   }
 
@@ -362,6 +362,14 @@ export function createSpawnSubagentTool(services: SessionTaskServices): Tool<Spa
         task,
         summary: args.type ? `spawned ${args.type} · ${task.id}` : `spawned · ${task.id}`,
       }
+    },
+  }
+}
+
+export function subagentsCapability(services: SessionTaskServices): Capability {
+  return {
+    async tools() {
+      return [createSpawnSubagentTool(services)]
     },
   }
 }

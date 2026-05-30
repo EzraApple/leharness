@@ -86,8 +86,8 @@ export async function executeTools(
  * outputs above AUTO_ARTIFACT_THRESHOLD_BYTES land on disk as artifacts
  * and the caller sees a short stub; everything else passes through
  * inline (still subject to `truncateOutput` as a last-resort safety
- * net for adversarially-huge results, which artifact_id would normally
- * have already caught).
+ * net for adversarially-huge results, which auto-artifacting would
+ * normally have already caught).
  */
 async function sizeForContext(
   ctx: ToolContext,

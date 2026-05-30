@@ -236,12 +236,26 @@ function pushTool(rows: TranscriptRow[], cell: Cell, width: number): void {
 function pushBackgroundTool(rows: TranscriptRow[], cell: Cell, width: number): void {
   const marker = cell.background
   if (marker === undefined) return
-  const idSuffix = `· background ${shortTaskId(marker.taskId)}`
+  const idSuffix = `· ${backgroundTaskKindLabel(cell)} ${shortTaskId(marker.taskId)}`
   const title = renderToolDisplayTitle(cell)
+  const startedTitle = renderBackgroundStartedTitle(cell)
 
   if (marker.phase === "started") {
+    if (isDelegatedTask(cell)) {
+      if (marker.active !== false) {
+        pushRunningSubagentBox(rows, cell, startedTitle, marker.taskId, width)
+      } else {
+        pushTreeBlock(rows, cell, {
+          headline: `started subagent ${delegatedTaskTarget(cell)} · ${shortTaskId(marker.taskId)}`,
+          headlineMarkerColor: color.userChevron,
+          headlineTextColor: color.toolMeta,
+          width,
+        })
+      }
+      return
+    }
     pushTreeBlock(rows, cell, {
-      headline: `${title} · started in background · ${shortTaskId(marker.taskId)}`,
+      headline: `${startedTitle} · started in background · ${shortTaskId(marker.taskId)}`,
       headlineMarkerColor: color.background,
       headlineTextColor: color.toolMeta,
       width,
@@ -283,6 +297,60 @@ function pushBackgroundTool(rows: TranscriptRow[], cell: Cell, width: number): v
     headlineTextColor: color.cancelled,
     width,
   })
+}
+
+function pushRunningSubagentBox(
+  rows: TranscriptRow[],
+  cell: Cell,
+  title: string,
+  taskId: string,
+  width: number,
+): void {
+  const label = "subagent"
+  const body = `${title} · ${shortTaskId(taskId)}`
+  const minWidth = visibleWidth(`┌─ ${label} ┐`)
+  const totalWidth = Math.max(minWidth, Math.min(width, Math.max(44, visibleWidth(body) + 4)))
+  const contentWidth = Math.max(8, totalWidth - 4)
+  const topPrefix = `┌─ ${label} `
+  const top = `${topPrefix}${"─".repeat(Math.max(0, totalWidth - visibleWidth(topPrefix) - 1))}┐`
+  pushLine(rows, cell, "subagent-box-top", top, color.userChevron)
+  for (const [index, line] of wrapText(body, contentWidth).entries()) {
+    pushLine(
+      rows,
+      cell,
+      `subagent-box-body-${index}`,
+      `│ ${padToWidth(line, contentWidth)} │`,
+      color.userChevron,
+    )
+  }
+  pushLine(
+    rows,
+    cell,
+    "subagent-box-bottom",
+    `└${"─".repeat(Math.max(0, totalWidth - 2))}┘`,
+    color.userChevron,
+  )
+}
+
+function isDelegatedTask(cell: Cell): boolean {
+  return cell.title === "delegated"
+}
+
+function backgroundTaskKindLabel(cell: Cell): string {
+  return isDelegatedTask(cell) ? "subagent" : "background"
+}
+
+function delegatedTaskTarget(cell: Cell): string {
+  const target = cell.display?.target
+  return target === undefined || target.length === 0 ? "subagent" : target
+}
+
+function renderBackgroundStartedTitle(cell: Cell): string {
+  const display = cell.display
+  if (display === undefined) return formatToolLabel(cell.title ?? "task")
+  return [formatToolLabel(display.pending), display.target]
+    .filter((part) => part !== undefined && part.length > 0)
+    .join(" ")
 }
 
 function shortTaskId(id: string, head = 12): string {

@@ -1,7 +1,7 @@
 import * as fs from "node:fs/promises"
 import * as os from "node:os"
 import * as path from "node:path"
-import { loadEvents, runInvocation } from "../../dist/index.js"
+import { loadEvents, runInvocation, skillsCapability } from "../../dist/index.js"
 
 function assert(cond, msg) {
   if (!cond) {
@@ -108,6 +108,7 @@ try {
     tools: [],
     model: "fake-model",
     systemPrompt: "smoke skills",
+    capabilities: [skillsCapability()],
   }
 
   await runInvocation(sessionId, "please use the example skill", deps)

@@ -1,30 +1,19 @@
 // prepare-prompt.ts
 // Produces the PromptInput the model call will consume. Two responsibilities:
-//   1. Compose the tool list — auto-injecting the built-in task tools when
-//      tasks are enabled and load_skill when a skill catalog will be rendered.
-//   2. Compose the system prompt — appending a compact skill catalog only
-//      when skills are enabled and at least one was discovered.
+//   1. Compose the tool list by folding caller-provided tools with any
+//      capability contributions.
+//   2. Compose the system prompt by letting capabilities append/wrap it.
 // Returns both the projected PromptInput and the final tool list so the loop
 // can pass the same list to executeTools.
 
-import { readArtifactTool } from "../artifacts.js"
 import type { Event } from "../events.js"
 import { contextWindowTokensForModel, type ReasoningEffort } from "../models.js"
 import type { CompactionOptions, PromptInput } from "../prompt.js"
 import { buildInput } from "../prompt.js"
 import type { Provider, ToolCallDelta } from "../provider/index.js"
-import {
-  createLoadSkillTool,
-  discoverSkills,
-  recentLoadedSkillNames,
-  renderSkillCatalog,
-  type SkillOptions,
-  skillOptionsEnabled,
-  withSkillCatalog,
-} from "../skills.js"
-import { createSpawnSubagentTool } from "../subagents.js"
-import { builtInTaskTools, type SessionTaskServices } from "../tasks.js"
+import type { SessionTaskServices } from "../tasks.js"
 import type { Tool } from "../tools.js"
+import type { Capability, CapabilityContext } from "./capability.js"
 import type { InvocationState } from "./state.js"
 
 interface PreparedPrompt {
@@ -41,9 +30,7 @@ interface PrepareDeps {
   maxOutputTokens?: number
   compaction?: CompactionOptions
   reasoningEffort?: ReasoningEffort
-  skills?: SkillOptions | false
-  tasks?: boolean
-  subagents?: boolean
+  capabilities?: Capability[]
 }
 
 interface PrepareOptions {
@@ -59,36 +46,21 @@ export async function preparePrompt(
   userText: string | undefined,
   deps: PrepareDeps,
   options: PrepareOptions,
-  taskServices?: SessionTaskServices,
+  taskServices: SessionTaskServices,
 ): Promise<PreparedPrompt> {
-  const baseSystem = deps.systemPrompt
-  const skillConfig = deps.skills === false ? undefined : deps.skills
-  const tasksEnabled = deps.tasks !== false
-  const subagentsEnabled =
-    deps.subagents !== false && taskServices?.executors.has("delegated") === true
-  let system = baseSystem
-  let tools = applyBuiltIns(deps.tools, { tasksEnabled, subagentsEnabled, taskServices })
-
-  if (skillOptionsEnabled(deps.skills)) {
-    const discoveredSkills = await discoverSkills(skillConfig?.root)
-    if (discoveredSkills.length > 0) {
-      const catalog = renderSkillCatalog(discoveredSkills, {
-        budgetChars: skillConfig?.catalogBudgetChars,
-        includePaths: skillConfig?.includePaths,
-        queryText: userText ?? "",
-        recentSkillNames: recentLoadedSkillNames(invocation.events),
-      })
-      system = withSkillCatalog(baseSystem, catalog)
-      const skillTools = [
-        createLoadSkillTool({
-          root: skillConfig?.root,
-          maxSkillBytes: skillConfig?.maxSkillBytes,
-        }),
-        ...deps.tools.filter((tool) => tool.name !== "load_skill"),
-      ]
-      tools = applyBuiltIns(skillTools, { tasksEnabled, subagentsEnabled, taskServices })
-    }
+  const capabilityContext: CapabilityContext = {
+    sessionId: invocation.sessionId,
+    events: invocation.events,
+    userText,
+    taskServices,
   }
+  const capabilities = deps.capabilities ?? []
+  const { system, tools } = await foldCapabilities(
+    deps.systemPrompt,
+    deps.tools,
+    capabilities,
+    capabilityContext,
+  )
 
   return {
     input: buildInput(invocation.events, tools, {
@@ -110,6 +82,37 @@ export async function preparePrompt(
   }
 }
 
+async function foldCapabilities(
+  baseSystem: string,
+  baseTools: Tool[],
+  capabilities: Capability[],
+  ctx: CapabilityContext,
+): Promise<{ system: string; tools: Tool[] }> {
+  let system = baseSystem
+  const tools = [...baseTools]
+
+  for (const capability of capabilities) {
+    if (capability.tools !== undefined) {
+      const contributed = await capability.tools(ctx)
+      appendMissingTools(tools, contributed)
+    }
+    if (capability.augmentSystemPrompt !== undefined) {
+      system = await capability.augmentSystemPrompt(system, ctx)
+    }
+  }
+
+  return { system, tools }
+}
+
+function appendMissingTools(tools: Tool[], contributed: Tool[]): void {
+  const existingNames = new Set(tools.map((tool) => tool.name))
+  for (const tool of contributed) {
+    if (existingNames.has(tool.name)) continue
+    tools.push(tool)
+    existingNames.add(tool.name)
+  }
+}
+
 // The kernel owns the default budget so apps don't have to think about
 // model context windows. Pressure-gradient consumes maxInputTokens
 // directly; the char ceiling is its T6 safety net only (see plan 007).
@@ -125,30 +128,4 @@ function applyCompactionDefaults(
     maxInputTokens,
     maxInputChars,
   }
-}
-
-function applyBuiltIns(
-  tools: Tool[],
-  flags: {
-    tasksEnabled: boolean
-    subagentsEnabled: boolean
-    taskServices?: SessionTaskServices
-  },
-): Tool[] {
-  const overrides = new Set(tools.map((tool) => tool.name))
-  let next = tools
-  if (flags.tasksEnabled) {
-    next = [...next, ...builtInTaskTools.filter((tool) => !overrides.has(tool.name))]
-  }
-  if (!overrides.has("read_artifact")) {
-    next = [...next, readArtifactTool]
-  }
-  if (
-    flags.subagentsEnabled &&
-    flags.taskServices !== undefined &&
-    !overrides.has("spawn_subagent")
-  ) {
-    next = [...next, createSpawnSubagentTool(flags.taskServices)]
-  }
-  return next
 }

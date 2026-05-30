@@ -278,7 +278,7 @@ function handleTaskStarted(state: TranscriptState, event: Event): void {
   const callId = typeof event.callId === "string" ? event.callId : undefined
   const existingIndex = callId === undefined ? undefined : state.toolCellById.get(callId)
   const update = {
-    background: { phase: "started" as const, taskId: task.id },
+    background: { active: true, phase: "started" as const, taskId: task.id },
     detail: undefined,
     display,
     expanded: false,
@@ -305,6 +305,7 @@ function handleTaskTerminal(
   if (taskId === undefined) return
   const active = state.activeTasks.get(taskId)
   state.activeTasks.delete(taskId)
+  markStartedTaskInactive(state, taskId)
   const summary = typeof event.summary === "string" ? event.summary : undefined
   const display =
     active?.display ??
@@ -337,6 +338,15 @@ function handleTaskTerminal(
     text,
     title: active?.kind ?? "task",
   })
+}
+
+function markStartedTaskInactive(state: TranscriptState, taskId: string): void {
+  for (const [index, cell] of state.cells.entries()) {
+    if (cell.background?.taskId !== taskId || cell.background.phase !== "started") continue
+    updateCellInline(state, index, {
+      background: { ...cell.background, active: false },
+    })
+  }
 }
 
 function readTaskRecord(value: unknown):

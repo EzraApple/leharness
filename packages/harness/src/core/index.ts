@@ -4,4 +4,5 @@
 // execute-tools.ts, task-drain.ts, and state.ts are loop internals —
 // consumers don't need them.
 
+export * from "./capability.js"
 export * from "./invocation.js"

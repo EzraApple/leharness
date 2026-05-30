@@ -71,12 +71,6 @@ const TOOL_DISPLAYS: Record<string, ToolDisplay> = {
     failed: "cancel failed for",
     target: (args) => shortTaskId(readField(args, "task_id")),
   },
-  read_artifact: {
-    pending: "reading",
-    completed: "read",
-    failed: "read failed for",
-    target: (args) => shortArtifactId(readField(args, "artifact_id")),
-  },
   spawn_subagent: {
     pending: "spawning",
     completed: "spawned",
@@ -230,11 +224,6 @@ function truncate(value: string, max: number): string {
 function shortTaskId(value: string | undefined): string | undefined {
   if (value === undefined) return undefined
   return value.length <= 13 ? value : `${value.slice(0, 12)}…`
-}
-
-function shortArtifactId(value: string | undefined): string | undefined {
-  if (value === undefined) return undefined
-  return value.length <= 17 ? value : `${value.slice(0, 16)}…`
 }
 
 function summarizeCommandOutput(output: string): string {

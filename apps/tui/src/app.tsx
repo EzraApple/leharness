@@ -169,13 +169,8 @@ export function TuiApp({
   }, [mcp])
 
   const refreshSkills = useCallback(() => {
-    if (deps.skills === false) {
-      setSkills([])
-      return () => {}
-    }
-
     let cancelled = false
-    void discoverSkills(deps.skills?.root)
+    void discoverSkills()
       .then((discovered) => {
         if (!cancelled) setSkills(discovered)
       })
@@ -186,7 +181,7 @@ export function TuiApp({
     return () => {
       cancelled = true
     }
-  }, [deps.skills])
+  }, [])
 
   useEffect(() => refreshSkills(), [refreshSkills])
 
@@ -290,7 +285,6 @@ export function TuiApp({
     sessionId,
     setStatus,
     setTranscript,
-    tasksEnabled: deps.tasks !== false,
   })
 
   useInput(

@@ -66,7 +66,7 @@ for (let i = 0; i < 8; i++) {
 const provider = {
   name: "compound-loss-fake",
   async call(req) {
-    if (req.tools === undefined) {
+    if (isSummarizerRequest(req)) {
       const idx = summarizerCallNumber++
       const text = summarizerResponses[idx] ?? "OVERFLOW"
       return {
@@ -82,12 +82,15 @@ const provider = {
   },
 }
 
+function isSummarizerRequest(req) {
+  return req.system?.startsWith("You produce concise handoff briefs") === true
+}
+
 const baseDeps = {
   provider,
   tools: [],
   model: "fake-main",
   systemPrompt: "smoke compound",
-  tasks: false,
   compaction: { maxInputTokens: budget, preserveRecentTurns: 1 },
 }
 
