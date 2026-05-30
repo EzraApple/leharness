@@ -27,8 +27,10 @@ export const BUILTIN_MODELS: ModelSpec[] = [
     provider: "deepseek",
     label: "DeepSeek V4 Flash",
     description: "Fast, low-cost DeepSeek model with 1M context and tool calls.",
-    supportsReasoning: true,
-    defaultReasoningEffort: "high",
+    // Flash doesn't expose controllable reasoning effort yet, so /effort stays
+    // hidden for it (the deepseek provider still parses reasoning_content when
+    // a model emits it).
+    supportsReasoning: false,
     contextWindowTokens: 1_000_000,
   },
   {

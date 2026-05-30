@@ -7,6 +7,7 @@ import {
   reduceText,
   setLatestToolDetailExpanded,
 } from "../src/state/transcript.js"
+import { glyph } from "../src/theme.js"
 
 let state = initialTranscript()
 state = reduceText(state, "final")
@@ -320,6 +321,20 @@ const bashCell = state.cells.find((cell) => cell.title === "bash")
 assert.equal(bashCell?.outcome, "failed")
 assert.equal(bashCell?.text, "exit 1 · 2 lines\nError: snapshot mismatch")
 assert.equal(bashCell?.detail, "ok 1\nError: snapshot mismatch")
+
+// Tree-connector layout: a tool renders as a `⏺` headline with its output
+// hanging under it on a `⎿` connector (continuation lines align, unmarked).
+assert.ok(bashCell)
+const bashRows = transcriptTestInternals.buildRows([bashCell], { running: false, width: 80 })
+assert.ok(
+  bashRows.some((row) => row.marker === glyph.headline && row.text.includes("ran pnpm test")),
+  "bash headline row should carry the ⏺ marker",
+)
+assert.ok(
+  bashRows.some((row) => row.marker === glyph.connector && row.text.includes("exit 1")),
+  "bash output row should carry the ⎿ connector marker",
+)
+
 expanded = setLatestToolDetailExpanded(state, true, "bash")
 assert.equal(expanded.changed, true)
 assert.equal(expanded.state.cells.find((cell) => cell.title === "bash")?.expanded, true)

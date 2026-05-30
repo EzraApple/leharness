@@ -42,6 +42,12 @@ u = expectUpdate(reduceTextKey("ab", 1, "\r", { return: true, shift: true }, tru
 assert.equal(u.value, "a\nb")
 assert.equal(u.cursorOffset, 2)
 
+// Option/Alt+Enter (meta+Enter) also composes a newline — the reliable path
+// when the terminal collapses Shift+Enter to a bare CR.
+u = expectUpdate(reduceTextKey("ab", 1, "\r", { return: true, meta: true }, true))
+assert.equal(u.value, "a\nb")
+assert.equal(u.cursorOffset, 2)
+
 // Backspace deletes the character before the cursor.
 u = expectUpdate(reduceTextKey("abc", 2, "", { backspace: true }, true))
 assert.equal(u.value, "ac")

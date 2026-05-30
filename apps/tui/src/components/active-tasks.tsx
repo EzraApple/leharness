@@ -2,6 +2,7 @@ import { Box, Text } from "ink"
 import { useEffect, useState } from "react"
 import stringWidth from "string-width"
 import type { ActiveTask } from "../state/types.js"
+import { color } from "../theme.js"
 
 export function ActiveTasks({ tasks, width }: { tasks: Map<string, ActiveTask>; width: number }) {
   const now = useTickingNow(tasks.size > 0)
@@ -13,7 +14,7 @@ export function ActiveTasks({ tasks, width }: { tasks: Map<string, ActiveTask>; 
 
   return (
     <Box marginTop={1}>
-      <Text color="yellow">{padToWidth(line, rowWidth)}</Text>
+      <Text color={color.background}>{padToWidth(line, rowWidth)}</Text>
     </Box>
   )
 }
