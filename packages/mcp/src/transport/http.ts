@@ -11,14 +11,13 @@
 
 import { createParser } from "eventsource-parser"
 import type { JsonRpcNotification, JsonRpcRequest } from "../protocol.js"
-import { isResponse } from "../protocol.js"
+import { isIncomingMessage } from "../protocol.js"
 import type { IncomingMessage, Transport } from "./types.js"
 
 export class UnauthorizedError extends Error {
   constructor(
     message: string,
-    // Value of the WWW-Authenticate header, if present — points at the
-    // resource metadata the OAuth flow needs.
+    // Points at the resource metadata the OAuth flow needs, when present.
     readonly wwwAuthenticate: string | undefined,
   ) {
     super(message)
@@ -28,9 +27,8 @@ export class UnauthorizedError extends Error {
 
 interface HttpTransportOptions {
   url: string
-  // Returns the current Authorization header value (e.g. "Bearer xyz")
-  // or undefined for an unauthenticated server. Called per request so a
-  // refreshed token is picked up without rebuilding the transport.
+  // Called per request so a refreshed token is picked up without rebuilding
+  // the transport.
   getAuthHeader?: () => string | undefined
 }
 
@@ -46,14 +44,12 @@ export class HttpTransport implements Transport {
   }
 
   onClose(_handler: (reason: string) => void): void {
-    // HTTP is connectionless from our side — there's no async "the
-    // connection dropped" event to forward, unlike stdio's process exit.
-    // Per-request failures surface as thrown errors from send() instead.
+    // No connection to drop: per-request failures surface as thrown errors
+    // from send() instead.
   }
 
   async start(): Promise<void> {
-    // HTTP is connectionless from our side; nothing to open until the
-    // first send().
+    // Nothing to open; the first send() establishes the session.
   }
 
   async send(message: JsonRpcRequest | JsonRpcNotification): Promise<void> {
@@ -124,14 +120,8 @@ export class HttpTransport implements Transport {
   }
 
   private dispatch(payload: unknown): void {
-    if (isResponse(payload) || isNotification(payload)) {
-      this.messageHandler?.(payload as IncomingMessage)
-    }
+    if (isIncomingMessage(payload)) this.messageHandler?.(payload)
   }
-}
-
-function isNotification(msg: unknown): boolean {
-  return typeof msg === "object" && msg !== null && "method" in msg && !("id" in msg)
 }
 
 async function safeText(res: Response): Promise<string> {

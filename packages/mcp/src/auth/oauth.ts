@@ -1,14 +1,12 @@
 // auth/oauth.ts
-// OAuth 2.0 authorization-code + PKCE for MCP servers, hand-rolled over
-// fetch. Covers the MCP auth spec path: protected-resource metadata
-// discovery (RFC 9728) → authorization-server metadata (RFC 8414) →
-// optional dynamic client registration (RFC 7591) → PKCE authorize →
-// code exchange → refresh.
+// OAuth 2.0 authorization-code + PKCE for MCP servers, over fetch. The flow
+// follows the MCP auth spec: protected-resource metadata discovery
+// (RFC 9728) → authorization-server metadata (RFC 8414) → optional dynamic
+// client registration (RFC 7591) → PKCE authorize → code exchange → refresh.
 //
-// The crypto is node stdlib (sha256 + base64url for PKCE) — no jose,
-// because as a client we never verify the access token; it's opaque to
-// us and we just bear it. The browser-open + loopback redirect capture
-// is delegated to the caller (app layer) via the `authorize` callback,
+// The access token is opaque to us — we never verify it, just bear it — so
+// PKCE needs only node's stdlib crypto (sha256 + base64url). Browser-open
+// and loopback redirect capture are delegated to the caller (the app layer),
 // keeping this module UI-free.
 
 import { createHash, randomBytes } from "node:crypto"
@@ -39,7 +37,6 @@ export class NeedsInteractiveAuthError extends Error {
 // collision) and reports the URI it chose; the oauth module then drives
 // the rest of the flow against that URI.
 export interface LoopbackAuthorization {
-  // The redirect URI the listener is bound to (e.g. http://127.0.0.1:PORT/callback).
   redirectUri: string
   // Open the browser to `authorizationUrl` and resolve with the captured
   // authorization code (rejects on error/timeout).
@@ -74,7 +71,6 @@ export async function ensureAccessToken(args: EnsureTokenArgs): Promise<string> 
 
   const metadata = await discoverAuthServer(args.serverUrl, args.wwwAuthenticate)
 
-  // Try refresh first if we have a refresh token.
   if (stored?.refreshToken !== undefined && stored.clientId !== undefined) {
     try {
       const refreshed = await refreshTokens(metadata.tokenEndpoint, {
@@ -160,8 +156,6 @@ function isExpired(tokens: StoredTokens): boolean {
   return Date.now() >= tokens.expiresAt - EXPIRY_SKEW_MS
 }
 
-// ---- discovery ----
-
 async function discoverAuthServer(
   serverUrl: string,
   wwwAuthenticate: string | undefined,
@@ -231,8 +225,6 @@ function wellKnown(base: string, suffix: string): string {
   return `${url.origin}/.well-known/${suffix}`
 }
 
-// ---- dynamic client registration (RFC 7591) ----
-
 async function registerClient(
   registrationEndpoint: string,
   redirectUri: string,
@@ -261,8 +253,6 @@ async function registerClient(
   }
 }
 
-// ---- PKCE ----
-
 function generatePkce(): { verifier: string; challenge: string } {
   const verifier = base64url(randomBytes(32))
   const challenge = base64url(createHash("sha256").update(verifier).digest())
@@ -272,8 +262,6 @@ function generatePkce(): { verifier: string; challenge: string } {
 function base64url(buf: Buffer): string {
   return buf.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
 }
-
-// ---- authorize + token ----
 
 function buildAuthorizationUrl(
   endpoint: string,

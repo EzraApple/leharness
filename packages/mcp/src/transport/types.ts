@@ -9,17 +9,12 @@ import type { JsonRpcNotification, JsonRpcRequest, JsonRpcResponse } from "../pr
 export type IncomingMessage = JsonRpcResponse | JsonRpcNotification
 
 export interface Transport {
-  // Open the underlying channel (spawn the process / establish the
-  // HTTP session). Resolves once ready to send.
   start(): Promise<void>
-  // Send one outbound JSON-RPC request or notification.
   send(message: JsonRpcRequest | JsonRpcNotification): Promise<void>
-  // Register the handler that receives every inbound message. Set once
-  // before start().
+  // Register the inbound-message handler; must be set before start().
   onMessage(handler: (message: IncomingMessage) => void): void
-  // Register a handler for transport-level failure (process exit,
-  // connection drop). Lets the manager surface "exited"/"failed".
+  // Register a handler for transport-level failure (process exit, dropped
+  // connection) so the manager can surface "exited"/"failed".
   onClose(handler: (reason: string) => void): void
-  // Tear down the channel.
   close(): Promise<void>
 }
