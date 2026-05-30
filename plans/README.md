@@ -36,8 +36,8 @@ Index:
   in `.leharness/sessions/<id>/artifacts/`. The harness auto-artifacts any
   tool result (or background task completion) over 8KB, writes the content
   to disk, and replaces the in-context value with a short stub + the
-  `artifact_id`. A built-in `read_artifact` tool fetches full content or a
-  paginated slice. Foundation for the next plan (smart compaction). The
+  artifact file path. Artifact recovery now uses bounded `read_file` reads
+  against that path. Foundation for the next plan (smart compaction). The
   same PR also renames `packages/harness/src/harness/` →
   `packages/harness/src/core/`.
 - `007-smart-compaction.md` — plan for a pressure-gradient compaction

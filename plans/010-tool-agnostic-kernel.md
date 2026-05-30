@@ -388,9 +388,9 @@ Files touched:
   tombstones and prior-promotion stubs so they reference the artifact file
   path + `read_file`, not `read_artifact`.
 - `packages/harness/src/artifacts.ts` and `packages/harness/src/index.ts`
-  — remove `readArtifactTool` / `createReadArtifactTool` exports once the
-  smokes no longer need them. Keep `readArtifact(...)` as an internal or
-  exported helper only if tests or future inspectors still use it.
+  — remove `readArtifactTool`, `createReadArtifactTool`, and
+  `readArtifact(...)`; artifact recovery goes through the artifact file
+  path plus bounded `read_file`.
 - `packages/harness/src/core/prepare-prompt.ts` — no `read_artifact`
   tool is added to the model-facing tool list.
 - `apps/tui/src/display/tools.ts` and transcript rendering, if they have

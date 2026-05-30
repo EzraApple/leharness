@@ -56,15 +56,6 @@ export async function writeArtifact(
   }
 }
 
-export async function readArtifact(
-  sessionId: string,
-  artifactId: string,
-): Promise<{ content: string; byteCount: number }> {
-  const filePath = resolveArtifactPath(sessionId, artifactId)
-  const buffer = await fs.readFile(filePath)
-  return { content: buffer.toString("utf8"), byteCount: buffer.byteLength }
-}
-
 export function formatArtifactStub(artifact: Artifact, content: string): string {
   const head = content.length > STUB_HEAD_CHARS ? `${content.slice(0, STUB_HEAD_CHARS)}…` : content
   const mime = artifact.mime !== undefined ? ` · ${artifact.mime}` : ""
