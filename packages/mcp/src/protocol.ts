@@ -1,13 +1,11 @@
 // protocol.ts
-// The slice of MCP we speak as a tools-only client: JSON-RPC 2.0 framing
-// plus the handful of method shapes we send/receive (initialize,
-// notifications/initialized, tools/list, tools/call). Hand-written and
-// pinned to a protocol version rather than pulling the official SDK,
-// whose bulk is server-side. Resources / prompts / sampling are out of
-// scope (plan 009).
+// The tools-only slice of MCP we speak: JSON-RPC 2.0 framing plus the
+// method shapes we send and receive (initialize, notifications/initialized,
+// tools/list, tools/call), pinned to a fixed protocol version. Resources,
+// prompts, and sampling are out of scope.
 
-// We advertise this protocol version on initialize; servers echo their
-// own and we accept whatever they return (MCP is lenient on minor skew).
+// Advertised to the server on initialize; we accept whatever version it
+// echoes back (MCP tolerates minor skew).
 const MCP_PROTOCOL_VERSION = "2025-06-18"
 
 export interface JsonRpcRequest {
@@ -41,13 +39,13 @@ export function isJsonRpcError(msg: JsonRpcResponse): msg is JsonRpcError {
   return "error" in msg
 }
 
-export function isResponse(msg: unknown): msg is JsonRpcResponse {
-  return (
-    typeof msg === "object" && msg !== null && "id" in msg && ("result" in msg || "error" in msg)
-  )
+// The inbound shapes a tools-only client handles: a response to one of our
+// requests, or a server notification. Server→client requests are ignored.
+export function isIncomingMessage(msg: unknown): msg is JsonRpcResponse | JsonRpcNotification {
+  if (typeof msg !== "object" || msg === null) return false
+  if ("id" in msg) return "result" in msg || "error" in msg
+  return "method" in msg
 }
-
-// ---- initialize ----
 
 export interface InitializeResult {
   protocolVersion: string
@@ -58,13 +56,11 @@ export interface InitializeResult {
 export function buildInitializeParams(clientName: string, clientVersion: string): unknown {
   return {
     protocolVersion: MCP_PROTOCOL_VERSION,
-    // We're a tools-only client; advertise nothing we can't honor.
+    // Tools-only: advertise no capabilities we can't honor.
     capabilities: {},
     clientInfo: { name: clientName, version: clientVersion },
   }
 }
-
-// ---- tools/list ----
 
 export interface McpToolSpec {
   name: string
@@ -93,15 +89,13 @@ export function parseListToolsResult(result: unknown): McpToolSpec[] {
   return out
 }
 
-// ---- tools/call ----
-
 export interface CallToolResult {
   text: string
   isError: boolean
 }
 
-// MCP tool results are an array of content blocks; for a tools-only text
-// client we flatten text blocks and note any non-text blocks by type.
+// Tool results are an array of content blocks; flatten the text blocks and
+// replace any non-text block with a type marker.
 export function parseCallToolResult(result: unknown): CallToolResult {
   if (typeof result !== "object" || result === null) {
     return { text: "", isError: false }

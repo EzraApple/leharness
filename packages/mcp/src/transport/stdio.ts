@@ -7,15 +7,13 @@
 
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process"
 import type { JsonRpcNotification, JsonRpcRequest } from "../protocol.js"
-import { isResponse } from "../protocol.js"
+import { isIncomingMessage } from "../protocol.js"
 import type { IncomingMessage, Transport } from "./types.js"
 
 interface StdioTransportOptions {
   command: string
   args?: string[]
   env?: Record<string, string>
-  cwd?: string
-  // Forwarded the server's stderr lines for debugging.
   onStderr?: (line: string) => void
 }
 
@@ -38,7 +36,6 @@ export class StdioTransport implements Transport {
 
   async start(): Promise<void> {
     const proc = spawn(this.options.command, this.options.args ?? [], {
-      cwd: this.options.cwd,
       env: { ...process.env, ...this.options.env },
       stdio: ["pipe", "pipe", "pipe"],
     }) as ChildProcessWithoutNullStreams
@@ -63,8 +60,8 @@ export class StdioTransport implements Transport {
       this.closeHandler?.(`process error: ${err.message}`)
     })
 
-    // The process is "started" as soon as it's spawned; the initialize
-    // handshake (driven by the client) confirms it actually speaks MCP.
+    // "Started" once spawned; the client's initialize handshake confirms it
+    // actually speaks MCP.
   }
 
   async send(message: JsonRpcRequest | JsonRpcNotification): Promise<void> {
@@ -101,13 +98,6 @@ export class StdioTransport implements Transport {
       this.options.onStderr?.(`(non-JSON stdout) ${line}`)
       return
     }
-    // Responses have an id; notifications have a method and no id.
-    if (isResponse(parsed) || isNotification(parsed)) {
-      this.messageHandler?.(parsed as IncomingMessage)
-    }
+    if (isIncomingMessage(parsed)) this.messageHandler?.(parsed)
   }
-}
-
-function isNotification(msg: unknown): boolean {
-  return typeof msg === "object" && msg !== null && "method" in msg && !("id" in msg)
 }
