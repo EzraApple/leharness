@@ -3,20 +3,17 @@
 // auto-artifacts any tool output (or drained task completion) bigger than
 // AUTO_ARTIFACT_THRESHOLD_BYTES, writes the full content to
 // .leharness/sessions/<sessionId>/artifacts/<artifactId>, and replaces the
-// in-context value with a short stub plus the artifact id. The model uses
-// the built-in read_artifact tool to pull the full content (or a paginated
-// slice) when it actually needs the detail.
+// in-context value with a short stub plus the artifact file path. The model
+// can use the caller-provided read_file tool with offset/limit to inspect
+// more detail without dumping the whole file back into context.
 
 import { promises as fs } from "node:fs"
 import path from "node:path"
 import { ulid } from "ulid"
-import { z } from "zod"
 import { resolveLeharnessHome } from "./events.js"
-import type { Tool, ToolContext, ToolExecuteResult } from "./tools.js"
 
 export const AUTO_ARTIFACT_THRESHOLD_BYTES = 8 * 1024
 const STUB_HEAD_CHARS = 400
-const MAX_ARTIFACT_READ_BYTES = 16 * 1024
 
 export interface Artifact {
   id: string
@@ -71,50 +68,6 @@ export async function readArtifact(
 export function formatArtifactStub(artifact: Artifact, content: string): string {
   const head = content.length > STUB_HEAD_CHARS ? `${content.slice(0, STUB_HEAD_CHARS)}…` : content
   const mime = artifact.mime !== undefined ? ` · ${artifact.mime}` : ""
-  return `[artifact: ${artifact.id} · ${artifact.byteCount} bytes${mime} · head:\n${head}\n]`
-}
-
-const readArtifactArgs = z.object({
-  artifact_id: z.string().describe("Id of an artifact previously surfaced in a tool result."),
-  since_byte: z
-    .number()
-    .int()
-    .min(0)
-    .optional()
-    .describe("Byte cursor to read from; omit to read from the start."),
-})
-
-type ReadArtifactArgs = z.infer<typeof readArtifactArgs>
-
-export const readArtifactTool: Tool<ReadArtifactArgs> = {
-  name: "read_artifact",
-  description:
-    "Read the full content (or a paginated slice) of an artifact stored on disk. Tool results larger than 8KB are automatically written to an artifact and replaced in your prompt with a stub like [artifact: artifact_xxx · N bytes · head: ...]. Call read_artifact with the id to fetch the original content. Returns up to 16KB per call; use since_byte to paginate.",
-  schema: readArtifactArgs,
-  async execute(args, ctx: ToolContext): Promise<ToolExecuteResult> {
-    try {
-      const { content, byteCount } = await readArtifact(ctx.sessionId, args.artifact_id)
-      const cursor = args.since_byte ?? 0
-      if (cursor >= byteCount) {
-        return {
-          kind: "ok",
-          output: `[artifact ${args.artifact_id} · ${byteCount} bytes · cursor ${cursor} → ${byteCount}]\n`,
-          summary: `${byteCount} bytes total · at end`,
-        }
-      }
-      const buffer = Buffer.from(content, "utf8").subarray(cursor)
-      const sliceBytes = Math.min(buffer.byteLength, MAX_ARTIFACT_READ_BYTES)
-      const slice = buffer.subarray(0, sliceBytes).toString("utf8")
-      const nextCursor = cursor + sliceBytes
-      const body = `[artifact ${args.artifact_id} · ${byteCount} bytes · cursor ${cursor} → ${nextCursor}]\n${slice}`
-      return {
-        kind: "ok",
-        output: body,
-        summary: `${sliceBytes} bytes returned`,
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      return { kind: "error", message: `read_artifact failed: ${message}` }
-    }
-  },
+  const filePath = resolveArtifactPath(artifact.sessionId, artifact.id)
+  return `[artifact: ${filePath} · ${artifact.byteCount} bytes${mime} · head:\n${head}\nUse read_file with path="${filePath}", offset=1, limit=400 to inspect more.]`
 }

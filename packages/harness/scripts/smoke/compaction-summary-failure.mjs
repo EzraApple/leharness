@@ -53,7 +53,7 @@ responses.push({
 const provider = {
   name: "fail-fake",
   async call(req) {
-    if (req.tools === undefined) {
+    if (isSummarizerRequest(req)) {
       summarizerCalls++
       // First summarizer call: throw. Second: succeed (next-step retry).
       if (summarizerCalls === 1) {
@@ -70,6 +70,10 @@ const provider = {
     if (response === undefined) throw new Error("fail-fake: out of main responses")
     return response
   },
+}
+
+function isSummarizerRequest(req) {
+  return req.system?.startsWith("You produce concise handoff briefs") === true
 }
 
 const baseDeps = {

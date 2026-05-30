@@ -61,7 +61,7 @@ const seenMainRequests = []
 const provider = {
   name: "cache-hit-fake",
   async call(req) {
-    if (req.tools === undefined) {
+    if (req.system?.startsWith("You produce concise handoff briefs") === true) {
       summarizerCallCount++
       return {
         text: SUMMARY_TEXT,

@@ -66,7 +66,7 @@ for (let i = 0; i < 8; i++) {
 const provider = {
   name: "compound-loss-fake",
   async call(req) {
-    if (req.tools === undefined) {
+    if (isSummarizerRequest(req)) {
       const idx = summarizerCallNumber++
       const text = summarizerResponses[idx] ?? "OVERFLOW"
       return {
@@ -80,6 +80,10 @@ const provider = {
     if (response === undefined) throw new Error("compound-loss-fake: out of main responses")
     return response
   },
+}
+
+function isSummarizerRequest(req) {
+  return req.system?.startsWith("You produce concise handoff briefs") === true
 }
 
 const baseDeps = {

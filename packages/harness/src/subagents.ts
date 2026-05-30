@@ -17,6 +17,7 @@
 
 import { ulid } from "ulid"
 import { z } from "zod"
+import type { Capability } from "./core/capability.js"
 import type { Event, RecordEvent } from "./events.js"
 import { loadEvents } from "./events.js"
 import type { ReasoningEffort } from "./models.js"
@@ -362,6 +363,14 @@ export function createSpawnSubagentTool(services: SessionTaskServices): Tool<Spa
         task,
         summary: args.type ? `spawned ${args.type} · ${task.id}` : `spawned · ${task.id}`,
       }
+    },
+  }
+}
+
+export function subagentsCapability(services: SessionTaskServices): Capability {
+  return {
+    async tools() {
+      return [createSpawnSubagentTool(services)]
     },
   }
 }

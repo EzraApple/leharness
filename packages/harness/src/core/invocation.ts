@@ -13,6 +13,7 @@ import type { Provider, ToolCallDelta } from "../provider/index.js"
 import type { SkillOptions } from "../skills.js"
 import { getOrCreateTaskServices } from "../tasks.js"
 import type { Tool } from "../tools.js"
+import type { Capability } from "./capability.js"
 import { executeTools } from "./execute-tools.js"
 import { sendPrompt } from "./model-call.js"
 import { preparePrompt } from "./prepare-prompt.js"
@@ -42,6 +43,7 @@ export interface HarnessDeps {
   skills?: SkillOptions | false
   tasks?: boolean
   subagents?: boolean
+  capabilities?: Capability[]
 }
 
 export interface RunOptions {

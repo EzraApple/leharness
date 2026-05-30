@@ -4,10 +4,10 @@
 
 Make `@leharness/harness` **auto-inject no model-facing capability
 tools**. Today the kernel both *runs* tools and *ships* concrete ones:
-task-management, subagents, artifacts, and skills are baked into its
-prompt-prep and output paths. Pull each capability into its own package
-layered over the kernel, so the core becomes pure mechanism you can run
-with zero exposed tools and then bolt capabilities onto.
+task-management, subagents, skills, and `read_artifact` are baked into
+prompt-prep. Pull product-level capabilities into packages layered over
+the kernel, so the core becomes pure mechanism you can run with zero
+exposed tools and then bolt capabilities onto.
 
 This is the README's "generic core, thin wrappers" bet made real, and
 the foundation for the larger goal: a fully independent, hackable harness
@@ -38,23 +38,24 @@ where the kernel names concrete capabilities:
    injected **unconditionally** (no deps flag), unlike task-mgmt tools
    (gated on `tasksEnabled`) and `spawn_subagent` (gated on
    `subagentsEnabled && delegated executor registered`). This asymmetry
-   matters in Phase 3 — `@leharness/artifacts` becomes a capability you
-   register, so without it `read_artifact` will no longer appear.
+   matters because artifact storage is core, but the artifact read tool
+   should not be a special always-on model tool.
 2. The same file composes the **skill catalog into the system prompt**,
    re-rendered per invocation (depends on `userText` + recently loaded
    skills from `invocation.events`).
-3. `core/execute-tools.ts` and `core/task-drain.ts` auto-persist large
-   outputs via the artifacts store (`writeArtifact`), then record
-   `artifact.created` and `artifactId` fields.
-4. `compaction/pressure-gradient.ts` and `compaction/summarize.ts` also
-   hard-import the artifact store for T2 inline-result promotion and
-   T4/T5 source-window recovery.
+3. `apps/cli/src/tools/read_file.ts` returns whole files. That is why
+   `read_artifact` exists: without pagination, reading a large artifact
+   through `read_file` can dump too much content back into context and
+   get artifacted/truncated again.
+4. `core/execute-tools.ts`, `core/task-drain.ts`, and compaction all use
+   the artifacts module for durable overflow storage. That part is
+   correct kernel behavior and should stay core.
 5. `HarnessDeps` carries `skills` / `tasks` / `subagents` flags, and
    `packages/harness/src/index.ts` re-exports every concrete feature.
 
-The biggest concentration is still `prepare-prompt.ts`, but artifacts
-also reach into execution and compaction. The extraction must remove all
-of those imports, not only the prompt-prep ones.
+The boundary is therefore: keep artifact **storage** in the kernel, but
+remove the special `read_artifact` tool by making `read_file` safe to use
+on large text files.
 
 ## Target architecture
 
@@ -64,24 +65,24 @@ Three layers, dependencies pointing only inward:
 @leharness/harness   (kernel — pure mechanism, auto-injects ZERO tools)
   loop · event log · session projection · prompt assembly · compaction
   Tool contract + dispatch · async substrate (Task / TaskExecutor / queue / drain)
+  core artifact storage for large outputs + compaction recovery
   optional task-management tool exports (wait/read/cancel — caller chooses)
-  LargeOutputStore interface, but no concrete filesystem artifact store
         ▲
   capability packages   (opt-in; each owns its tool(s) + executor + hooks)
-  @leharness/exec · /subagents · /artifacts · /skills · /mcp (already exists)
+  @leharness/exec · /subagents · /skills · /mcp (already exists)
         ▲
   product   (apps/cli — composes the kernel + the capabilities it wants;
-             also keeps the baseline file tools read/create/edit)
+             also keeps bounded file tools read/create/edit)
 ```
 
 | Package | Owns | Avenue |
 | ------- | ---- | ------ |
-| `@leharness/harness` | loop, log, prompt/compaction, Tool contract, **async substrate**, optional task-mgmt tool exports, `LargeOutputStore` interface | the kernel |
+| `@leharness/harness` | loop, log, prompt/compaction, Tool contract, **async substrate**, core artifact storage, optional task-mgmt tool exports | the kernel |
 | `@leharness/exec` | `bash` + the background-capable command executor | running commands, fg/bg |
 | `@leharness/subagents` | `spawn_subagent` + executor | delegating to isolated child runs |
-| `@leharness/artifacts` | `read_artifact` + filesystem store + `LargeOutputStore` implementation | durable recovery of big outputs |
 | `@leharness/skills` | `load_skill` + discovery + catalog injection | loadable instruction modules |
 | `@leharness/mcp` | (unchanged) | external tool servers |
+| `apps/cli` file tools | bounded `read_file`, `create_file`, `edit_file` | product-facing file access |
 
 ## The Capability hook (the pivotal change)
 
@@ -157,67 +158,61 @@ compatibility phases, `resolveCapabilities` delegates to a temporary
 legacy adapter when `deps.capabilities === undefined`; in the final
 architecture it is just `deps.capabilities ?? []`.
 
-## The `LargeOutputStore` hook (the artifacts reach-in)
+## Bounded `read_file` replaces `read_artifact`
 
-```ts
-// packages/harness/src/core/large-output-store.ts (new file)
-export type LargeOutputPurpose =
-  | "tool_output"
-  | "task_output"
-  | "compaction_promotion"
-  | "compaction_summary_source"
+Artifacts remain a kernel storage primitive. The kernel still writes
+large tool outputs, background task results, promoted inline results, and
+compaction summary source windows under:
 
-export interface LargeOutputStore {
-  // Called by the kernel when it needs recoverable storage for bytes that
-  // should not remain inline in the next prompt. The store writes bytes and
-  // returns an opaque ref plus the exact stub that should replace the raw
-  // value in prompt context. The store does NOT record events; the kernel
-  // records the existing event types through invocation.recordEvent so the
-  // single-writer rule stays intact.
-  write(args: {
-    sessionId: string
-    bytes: string
-    mime?: string
-    purpose: LargeOutputPurpose
-    sourceCallId?: string
-    sourceTaskId?: string
-  }): Promise<{
-    ref: string
-    byteCount: number
-    mime?: string
-    stub: string
-  }>
-}
+```text
+.leharness/sessions/<sessionId>/artifacts/<artifactId>
 ```
 
-Plug points:
+The simplification: do **not** keep a separate `read_artifact` tool as
+the model-facing recovery path. Instead, make the product's normal
+`read_file` tool safe for large text files:
 
-- `core/execute-tools.ts:sizeForContext` — large direct tool outputs.
-  Kernel records the same `artifact.created` event with `sourceCallId`
-  and the same `tool.completed.artifactId` field.
-- `core/task-drain.ts:renderLarge` — large background task result/error
-  payloads. Kernel records `artifact.created` with `sourceTaskId` and
-  the same terminal task event `artifactId` field.
-- `compaction/pressure-gradient.ts` T2 — inline tool-result promotion.
-  Kernel records the same `artifact.created` + `compaction.tool_promoted`
-  events and projects the returned stub.
-- `compaction/summarize.ts` T4/T5 — source-window recovery. The summary
-  payload keeps the existing `sourceArtifactId` field, populated from
-  `ref`.
+```ts
+read_file({
+  path: string
+  // 1-based line number. Defaults to 1.
+  offset?: number
+  // Number of lines to read. Defaults below the artifact threshold and is
+  // capped so a single read does not immediately become another artifact.
+  limit?: number
+})
+```
 
-With **no** store registered (`deps.largeOutputStore === undefined`):
+Recommended constants:
 
-- large direct tool/task outputs fall back to `truncateOutput(bytes)` and
-  skip `artifact.created`;
-- compaction T2 promotion is skipped because there is no recoverable
-  place to put the original inline result;
-- compaction T4/T5 summarization is skipped because
-  `compaction.summary.sourceArtifactId` would otherwise point nowhere;
-- T1, T3, and T6 still run. T6 remains the hard safety net.
+```ts
+const READ_FILE_DEFAULT_LIMIT_LINES = 400
+const READ_FILE_MAX_LIMIT_LINES = 2000
+```
 
-The CLI wires `@leharness/artifacts` so user-facing behavior remains
-identical. Bare-kernel consumers can omit it and get truncation-only
-behavior.
+Behavior:
+
+- `offset` is 1-based and defaults to `1`.
+- `limit` defaults to `READ_FILE_DEFAULT_LIMIT_LINES` and clamps to
+  `READ_FILE_MAX_LIMIT_LINES`.
+- Output is line-numbered (`cat -n` style or equivalent).
+- The footer reports the line range, total lines, and next offset when
+  more content remains.
+- Small files shorter than the default cap still return in one call.
+- Large artifact files are just normal files, so the model reads them in
+  chunks with the same `read_file` tool it already uses for source/docs.
+
+Artifact stubs change from a pathless handle to a readable path:
+
+```text
+[artifact: .leharness/sessions/<sessionId>/artifacts/<artifactId> · 124288 bytes · head:
+...
+Use read_file with offset/limit to inspect more.]
+```
+
+This avoids a special artifact read protocol while keeping the original
+reason artifacts exist: large outputs stay recoverable without flooding
+the next prompt.
 
 ## `HarnessDeps` changes
 
@@ -227,9 +222,6 @@ Add:
   adapters" so existing `runInvocation` callers keep behavior; an
   explicit `[]` opts into no capabilities. In Phase 4, after the legacy
   flags are removed, `undefined` and `[]` both mean no capabilities.
-- `largeOutputStore?: LargeOutputStore` — consulted by tool execution,
-  task drain, and compaction; absent → truncate/skip recoverability
-  tiers.
 
 Remove (in Phase 4):
 - `skills?: SkillOptions | false`
@@ -295,13 +287,17 @@ established template in this repo:
   unconditionally. Without `builtInTaskTools` in `deps.tools`, the model
   cannot call wait/read/cancel, but a product-owned tool can still start
   background work.
-- **Artifact events stay stable even though storage moves out.**
-  `artifact.created`, `tool.completed.artifactId`,
-  terminal task-event `artifactId`, `compaction.tool_promoted.artifactId`,
-  and `compaction.summary.sourceArtifactId` remain the event-log
-  contract. The kernel records those events/fields from the
-  `LargeOutputStore` result; the filesystem implementation lives in
-  `@leharness/artifacts`.
+- **Artifact storage stays in `@leharness/harness`.** Artifacts are not a
+  product-level capability like skills or MCP; they are part of prompt
+  and context management. `artifact.created`,
+  `tool.completed.artifactId`, terminal task-event `artifactId`,
+  `compaction.tool_promoted.artifactId`, and
+  `compaction.summary.sourceArtifactId` remain the event-log contract.
+- **`read_artifact` is retired in favor of bounded `read_file`.** The
+  problem was not that artifacts need a custom reader; it was that
+  `read_file` read whole files. Once `read_file` supports line-based
+  `offset`/`limit` with safe defaults, artifact stubs can point at real
+  paths and the model can use normal file reading in chunks.
 - **Bash tool lives with the executor in `@leharness/exec`.** Today it's
   split (`apps/cli/src/tools/bash.ts` + `packages/harness/src/shell.ts`).
   In the new world both belong to `exec`, since the tool fundamentally
@@ -309,12 +305,13 @@ established template in this repo:
 - **Subagents receive child deps from the product.** The current
   subagent runtime auto-enables shell in child sessions. Replace that
   with explicit `SubagentDefaults`/preset fields for child tools,
-  capabilities, large-output store, and task-management tools. The CLI's
-  default "copy of me" behavior can still include exec; the package
-  should not assume it.
+  capabilities, and task-management tools. The CLI's default "copy of
+  me" behavior can still include exec; the package should not assume it.
 - **File I/O tools (`read_file`/`create_file`/`edit_file`) stay in
   `apps/cli`**. They're already decoupled and the product is the right
-  owner — no need for a package unless reused elsewhere.
+  owner — no need for a package unless reused elsewhere. `read_file`
+  becomes bounded and line-oriented as part of this plan because it is
+  the replacement read path for large artifact files.
 - **TUI skill search is product-layer behavior.** When skills move out
   of the kernel, `apps/tui` must stop importing `discoverSkills` and
   `Skill` from `@leharness/harness`. The CLI should pass the TUI a small
@@ -338,9 +335,10 @@ Files touched:
 - `packages/harness/src/core/legacy-capabilities.ts` — **new,
   temporary.** Converts the existing `skills/tasks/subagents` flags into
   capability objects while Phases 1-3 preserve compatibility. This is
-  where the temporary imports of `readArtifactTool`,
-  `createLoadSkillTool`, `createSpawnSubagentTool`, and
-  `builtInTaskTools` live after they leave `prepare-prompt.ts`.
+  where the temporary import of `readArtifactTool` lives until Phase 2,
+  and where the imports of `createLoadSkillTool`,
+  `createSpawnSubagentTool`, and `builtInTaskTools` live after they leave
+  `prepare-prompt.ts`.
 - `packages/harness/src/core/prepare-prompt.ts` — replace `applyBuiltIns`
   + the skill block with the fold loop shown above. Remove the direct
   hard imports of `readArtifactTool`/`createLoadSkillTool`/
@@ -357,8 +355,10 @@ Files touched:
 - `packages/harness/src/subagents.ts` — add an exported
   `subagentsCapability(services: SessionTaskServices): Capability`
   contributing `createSpawnSubagentTool(services)`.
-- `packages/harness/src/artifacts.ts` — add an exported
-  `artifactsCapability(): Capability` contributing `readArtifactTool`.
+- `packages/harness/src/artifacts.ts` — add a temporary exported
+  `readArtifactCapability(): Capability` contributing
+  `readArtifactTool`. This exists only to preserve behavior until Phase 2
+  replaces `read_artifact` with bounded `read_file`.
 - `packages/harness/src/tasks.ts` — `builtInTaskTools` stays a public
   export (the substrate's own tools). The CLI passes them via
   `deps.tools` if it wants them.
@@ -367,7 +367,7 @@ Files touched:
   ```ts
   const capabilities = [
     subagentsCapability(services),
-    artifactsCapability(),
+    readArtifactCapability(),
     skillsCapability(skillOpts),
   ]
   ```
@@ -383,62 +383,57 @@ Verification:
 - Spot-check a TUI session: `/mcp`, `/help`, skills load, a bash bg task
   drains — same behavior as before.
 
-### Phase 2 — `LargeOutputStore` hook
+### Phase 2 — bounded `read_file`, retire `read_artifact`
 
 Files touched:
-- `packages/harness/src/core/large-output-store.ts` — **new.** Defines
-  `LargeOutputStore` and `LargeOutputPurpose`.
-- `packages/harness/src/core/invocation.ts` — add
-  `largeOutputStore?: LargeOutputStore` to `HarnessDeps`, pass it to
-  `executeTools`, and pass it to `drainTaskQueue`.
-- `packages/harness/src/prompt.ts` — add `largeOutputStore` to
-  `PromptInput` / `buildInput` options so compaction can use the same
-  store the execution path uses.
-- `packages/harness/src/core/prepare-prompt.ts` — pass
-  `deps.largeOutputStore` through to `buildInput`.
-- `packages/harness/src/core/execute-tools.ts` — `sizeForContext` now
-  calls `ctx.largeOutputStore?.write(...)` for large direct tool output
-  instead of `writeArtifact` directly. The kernel records
-  `artifact.created` and `tool.completed.artifactId` exactly as before.
-- `packages/harness/src/tools.ts` — add `largeOutputStore?` to
-  `ToolContext` so `execute-tools.ts` can pass it through without a
-  parallel context object.
-- `packages/harness/src/core/task-drain.ts` — `renderLarge` receives the
-  store and calls it for large background task output/error instead of
-  `writeArtifact` directly. Without a store it returns `{ value:
-  truncateOutput(bytes), artifactId: undefined }` and skips
-  `artifact.created`.
-- `packages/harness/src/compaction/pressure-gradient.ts` — replace the
-  direct `writeArtifact` T2 promotion with `input.largeOutputStore`.
-  Without a store, skip T2 promotion and leave the existing inline-result
-  body for later T3/T6 handling.
-- `packages/harness/src/compaction/summarize.ts` — accept a
-  `largeOutputStore` argument and use it to persist the rendered source
-  window. If absent, return a skipped outcome like
-  `{ kind: "skipped", reason: "no_large_output_store" }`; do not record a
-  `compaction.summary` event with a fake source artifact id.
-- `packages/harness/src/artifacts.ts` — add an exported
-  `defaultLargeOutputStore(): LargeOutputStore` that wraps the existing
-  `writeArtifact` + `formatArtifactStub` behavior. Update
-  `artifactsCapability()` to return both pieces:
+- `apps/cli/src/tools/read_file.ts` — change the schema from whole-file
+  only to:
   ```ts
-  const artifacts = artifactsCapability()
-  // artifacts.capability contributes read_artifact
-  // artifacts.store implements LargeOutputStore
+  z.object({
+    path: z.string(),
+    offset: z.number().int().min(1).optional(),
+    limit: z.number().int().min(1).optional(),
+  })
   ```
-- `apps/cli/src/cli.ts` — pass `largeOutputStore: artifacts.store` and
-  include `artifacts.capability` in `deps.capabilities`.
+  Use `offset` as a 1-based line number. Default `offset` to `1`.
+  Default `limit` to `READ_FILE_DEFAULT_LIMIT_LINES = 400` and clamp to
+  `READ_FILE_MAX_LIMIT_LINES = 2000`.
+- `apps/cli/src/tools/read_file.ts` — render output with stable line
+  numbers. Include a footer like:
+  ```text
+  [read_file: <path> lines 1-400 of 2319; next offset: 401]
+  ```
+  If the file fits in the selected range, the footer should say the range
+  is complete.
+- `packages/harness/src/artifacts.ts` — update `formatArtifactStub` to
+  include the artifact file path returned by `resolveArtifactPath(...)`,
+  not only the artifact id. The stub should instruct the model to use
+  `read_file` with `offset`/`limit` for more content.
+- `packages/harness/src/compaction/pressure-gradient.ts` — update T3
+  tombstones and prior-promotion stubs so they reference the artifact file
+  path + `read_file`, not `read_artifact`.
+- `packages/harness/src/artifacts.ts` and `packages/harness/src/index.ts`
+  — remove `readArtifactTool` / `createReadArtifactTool` exports once the
+  smokes no longer need them. Keep `readArtifact(...)` as an internal or
+  exported helper only if tests or future inspectors still use it.
+- `packages/harness/src/core/legacy-capabilities.ts` and
+  `packages/harness/src/core/prepare-prompt.ts` — stop adding
+  `read_artifact` to the capability/tool list.
+- `apps/tui/src/display/tools.ts` and transcript rendering, if they have
+  special `read_artifact` labels, can drop them or treat old event logs as
+  historical display only.
 
 Verification:
-- `smoke-artifacts.ts`, `smoke-compaction-e2e.ts`, `smoke-bash-runtime.ts`
-  all pass (these exercise direct tool output, task-drain output, and
-  compaction).
+- Update `smoke-artifacts.ts`: large output still creates
+  `artifact.created` + `artifactId`, and the artifact file can be read in
+  chunks through `read_file({ path, offset, limit })`.
+- Add/adjust a `read_file` smoke covering default limit, explicit
+  `offset`, explicit `limit`, and clamp behavior.
 - `packages/harness/scripts/smoke/compaction-t2-promote.mjs` still
-  observes `artifact.created` + `compaction.tool_promoted`.
-- Add a no-store smoke that runs a large direct tool output and a
-  high-pressure compaction pass with `largeOutputStore: undefined`;
-  expected: no `artifact.created`, no `compaction.tool_promoted`, no
-  `compaction.summary`, and final prompt remains under the T6 char cap.
+  observes `artifact.created` + `compaction.tool_promoted`, but projected
+  stubs point at paths and `read_file` instructions.
+- Assert no `read_artifact` tool appears in the model-facing tool list
+  once Phase 2 lands.
 
 ### Phase 3 — Extract packages
 
@@ -448,8 +443,7 @@ One sub-phase per package. **Order matters** (deps point right):
 | --- | ------- | ------------------- | --------------- | ---------- |
 | 3a | `@leharness/exec` | `packages/harness/src/shell.ts` + `apps/cli/src/tools/bash.ts` + `apps/cli/scripts/smoke-bash-runtime.ts` | `packages/exec/src/{index.ts, executor.ts, bash-tool.ts, capability.ts}` + `packages/exec/scripts/smoke/` | → `harness` |
 | 3b | `@leharness/subagents` | `packages/harness/src/subagents.ts` (the executor + `enableSubagentRuntime` + `createSpawnSubagentTool` + `subagentsCapability`) + `apps/cli/scripts/smoke-subagents.ts` + any sample-subagent registration in `apps/cli` | `packages/subagents/src/{index.ts, executor.ts, spawn-tool.ts, capability.ts}` | → `harness` |
-| 3c | `@leharness/artifacts` | `packages/harness/src/artifacts.ts` (filesystem store + `readArtifactTool` + `artifactsCapability` + `defaultLargeOutputStore`) + `apps/cli/scripts/smoke-artifacts.ts` | `packages/artifacts/src/{index.ts, store.ts, read-tool.ts, large-output-store.ts, capability.ts}` | → `harness` |
-| 3d | `@leharness/skills` | `packages/harness/src/skills.ts` (discovery + catalog + `load_skill` + `skillsCapability` + `registerBuiltinSkill`) + `packages/harness/scripts/smoke/skills.mjs` | `packages/skills/src/{index.ts, discovery.ts, catalog.ts, load-tool.ts, capability.ts}` + `packages/skills/scripts/smoke/` | → `harness` |
+| 3c | `@leharness/skills` | `packages/harness/src/skills.ts` (discovery + catalog + `load_skill` + `skillsCapability` + `registerBuiltinSkill`) + `packages/harness/scripts/smoke/skills.mjs` | `packages/skills/src/{index.ts, discovery.ts, catalog.ts, load-tool.ts, capability.ts}` + `packages/skills/scripts/smoke/` | → `harness` |
 
 Per sub-phase:
 1. Create the new package dir mirroring `packages/mcp/` (see "Package
@@ -492,13 +486,15 @@ Verification:
 - Existing `pnpm smoke` green.
 - New **bare-kernel smoke** — `packages/harness/scripts/smoke/bare-kernel.mjs`:
   - Construct minimal `HarnessDeps` with `capabilities: []`,
-    `largeOutputStore: undefined`, `tools: [/* one trivial echo tool */]`.
+    `tools: [/* one trivial echo tool */]`.
   - Run a one-step invocation against the existing fake provider used by
     other harness smokes.
-  - Assert: no `artifact.created` events; no `skill.loaded` events; no
-    auto-injected tools in the model-facing tool list (only the echo
-    tool); large outputs (>16KB) come back truncated, not artifacted;
-    no task-management tools are visible unless explicitly passed.
+  - Assert: no `skill.loaded` events; no auto-injected tools in the
+    model-facing tool list (only the echo tool); no `read_artifact`;
+    no task-management tools are visible unless explicitly passed; large
+    outputs may still produce core `artifact.created` events because
+    artifact storage is kernel resource management, not a model-facing
+    capability.
   This is the property — "kernel ships zero opinions" — made executable.
 
 ## Standing conventions (the gates each phase must pass)
@@ -512,9 +508,11 @@ Verification:
 
 ## Do not change in this refactor
 
-- **Tool names** (`bash`, `read_file`, `create_file`, `edit_file`,
-  `read_artifact`, `wait_task`, `read_task`, `cancel_task`,
+- **Remaining tool names** (`bash`, `read_file`, `create_file`,
+  `edit_file`, `wait_task`, `read_task`, `cancel_task`,
   `spawn_subagent`, `load_skill`). They're part of the model contract.
+  `read_artifact` is the deliberate exception: Phase 2 retires it after
+  bounded `read_file` lands.
 - **Event types or payload field names.** The event log is the canonical
   session state; any change ripples through transcripts, smokes, the TUI.
 - **Existing smoke names or assertions.** They're the regression contract.

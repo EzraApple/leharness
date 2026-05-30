@@ -70,8 +70,9 @@ Index:
   model-facing capability tools. The async surface is already generic
   (`Tool.execute` returns inline-or-handle; `TaskExecutor` /
   `SessionTaskServices`); the coupling is package boundaries,
-  `prepare-prompt` hard-importing built-ins, and artifact storage reaching
-  into execution/compaction. Invert via a `Capability` hook plus a
-  `LargeOutputStore` interface, then extract each capability into its own
-  package (`@leharness/exec`, `/subagents`, `/artifacts`, `/skills`)
-  layered over the kernel.
+  `prepare-prompt` hard-importing built-ins, and `read_file` being too
+  blunt for large artifact files. Invert product features via a
+  `Capability` hook, keep artifact storage core, retire `read_artifact`
+  after bounded line-based `read_file` lands, then extract
+  `@leharness/exec`, `/subagents`, and `/skills` as packages layered over
+  the kernel.
