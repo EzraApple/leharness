@@ -6,7 +6,7 @@ export interface CapabilityContext {
   sessionId: string
   events: ReadonlyArray<Event>
   userText: string | undefined
-  taskServices: SessionTaskServices | undefined
+  taskServices: SessionTaskServices
 }
 
 export interface Capability {

@@ -12,6 +12,7 @@
 
 import { ulid } from "ulid"
 import { z } from "zod"
+import type { Capability } from "./core/capability.js"
 import type { Tool, ToolContext, ToolExecuteResult } from "./tools.js"
 
 export type TaskKind = "shell" | "delegated" // | "compaction" — reserved for a future plan
@@ -400,6 +401,14 @@ export const cancelTaskTool: Tool<CancelTaskArgs> = {
 }
 
 export const builtInTaskTools: Tool[] = [waitTaskTool, readTaskTool, cancelTaskTool]
+
+export function taskManagementCapability(): Capability {
+  return {
+    async tools() {
+      return builtInTaskTools
+    },
+  }
+}
 
 function clampMs(value: number, cap: number): number {
   if (!Number.isFinite(value) || value < 0) return 0

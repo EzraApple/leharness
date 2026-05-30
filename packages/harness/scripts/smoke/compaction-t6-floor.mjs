@@ -70,7 +70,6 @@ const baseDeps = {
   tools: [],
   model: "fake-model",
   systemPrompt: "smoke t6",
-  tasks: false,
   compaction: {
     maxInputTokens: budgetTokens,
     maxInputChars: charCeiling,

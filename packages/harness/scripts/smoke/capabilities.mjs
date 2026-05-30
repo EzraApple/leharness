@@ -1,7 +1,7 @@
 import * as fs from "node:fs/promises"
 import * as os from "node:os"
 import * as path from "node:path"
-import { runInvocation } from "../../dist/index.js"
+import { runInvocation, taskManagementCapability } from "../../dist/index.js"
 
 function assert(cond, msg) {
   if (!cond) {
@@ -27,29 +27,49 @@ function toolNames(request) {
   return (request?.tools ?? []).map((tool) => tool.name)
 }
 
-const defaultRequests = []
-const defaultProvider = {
-  name: "capabilities-default",
+const emptyRequests = []
+const emptyProvider = {
+  name: "capabilities-empty",
   async call(req) {
-    defaultRequests.push(req)
+    emptyRequests.push(req)
     return { text: "done", toolCalls: [], stopReason: "stop" }
   },
 }
 
-await runInvocation("smoke-capabilities-default", "check defaults", {
-  provider: defaultProvider,
+await runInvocation("smoke-capabilities-empty", "check empty capabilities", {
+  provider: emptyProvider,
   tools: [makeTool("base_tool")],
   model: "fake-model",
   systemPrompt: "smoke capabilities",
 })
 
-const defaultToolNames = toolNames(defaultRequests[0])
-assert(defaultToolNames.includes("base_tool"), "default request should keep caller tools")
-assert(defaultToolNames.includes("wait_task"), "default request should include task tools")
+const emptyToolNames = toolNames(emptyRequests[0])
 assert(
-  !defaultToolNames.includes("read_artifact"),
-  "default request should not expose read_artifact",
+  JSON.stringify(emptyToolNames) === JSON.stringify(["base_tool"]),
+  `omitted capabilities should expose only caller tools; got ${JSON.stringify(emptyToolNames)}`,
 )
+
+const taskRequests = []
+const taskProvider = {
+  name: "capabilities-task",
+  async call(req) {
+    taskRequests.push(req)
+    return { text: "done", toolCalls: [], stopReason: "stop" }
+  },
+}
+
+await runInvocation("smoke-capabilities-task", "check task capability", {
+  provider: taskProvider,
+  tools: [makeTool("base_tool")],
+  model: "fake-model",
+  systemPrompt: "smoke capabilities",
+  capabilities: [taskManagementCapability()],
+})
+
+const taskToolNames = toolNames(taskRequests[0])
+assert(taskToolNames.includes("base_tool"), "task capability should keep caller tools")
+assert(taskToolNames.includes("wait_task"), "task capability should expose task tools")
+assert(!taskToolNames.includes("read_artifact"), "task capability should not expose read_artifact")
 
 const customRequests = []
 const customProvider = {
@@ -80,7 +100,7 @@ await runInvocation("smoke-capabilities-custom", "check custom capabilities", {
 const customToolNames = toolNames(customRequests[0])
 assert(
   JSON.stringify(customToolNames) === JSON.stringify(["cap_tool", "extra_tool"]),
-  `custom capability tools should replace legacy defaults and de-dupe; got ${JSON.stringify(customToolNames)}`,
+  `custom capability tools should append missing tools and de-dupe; got ${JSON.stringify(customToolNames)}`,
 )
 assert(
   customRequests[0]?.system?.includes(

@@ -195,7 +195,6 @@ export function TuiApp({
   const startInvocationRef = useRef<(text: string | undefined) => Promise<void>>(async () => {})
 
   useEffect(() => {
-    if (deps.tasks === false) return
     const scheduleAutoInvocation = () => {
       if (autoInvocationScheduledRef.current) return
       autoInvocationScheduledRef.current = true
@@ -207,16 +206,11 @@ export function TuiApp({
       }, 50)
     }
     return subscribeToBackgroundUpdates(sessionId, scheduleAutoInvocation)
-  }, [deps.tasks, sessionId])
+  }, [sessionId])
 
   const refreshSkills = useCallback(() => {
-    if (deps.skills === false) {
-      setSkills([])
-      return () => {}
-    }
-
     let cancelled = false
-    void discoverSkills(deps.skills?.root)
+    void discoverSkills()
       .then((discovered) => {
         if (!cancelled) setSkills(discovered)
       })
@@ -227,7 +221,7 @@ export function TuiApp({
     return () => {
       cancelled = true
     }
-  }, [deps.skills])
+  }, [])
 
   useEffect(() => refreshSkills(), [refreshSkills])
 
@@ -424,7 +418,7 @@ export function TuiApp({
       // If background messages arrived during the loop tail without
       // tripping the queue listener (or arrived just after this finally
       // started), drain them in a fresh auto-invocation.
-      if (deps.tasks !== false && hasPendingBackgroundUpdates(sessionId) && !runningRef.current) {
+      if (hasPendingBackgroundUpdates(sessionId) && !runningRef.current) {
         setTimeout(() => {
           if (!runningRef.current && hasPendingBackgroundUpdates(sessionId)) {
             void startInvocation(undefined)

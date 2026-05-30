@@ -106,10 +106,8 @@ export interface CapabilityContext {
   // scoring.
   userText: string | undefined
   // The generic async substrate. Capabilities whose tools return
-  // {kind:"started", task} use this. Present in the final architecture;
-  // optional only during the Phase 1 compatibility window while the legacy
-  // tasks flag still exists.
-  taskServices: SessionTaskServices | undefined
+  // {kind:"started", task} use this.
+  taskServices: SessionTaskServices
 }
 
 export interface Capability {
@@ -137,7 +135,7 @@ const ctx: CapabilityContext = {
 
 let tools = [...deps.tools]
 let system = deps.systemPrompt
-const capabilities = resolveCapabilities(deps, taskServices)
+const capabilities = deps.capabilities ?? []
 for (const cap of capabilities) {
   if (cap.tools) {
     const contributed = await cap.tools(ctx)
@@ -153,10 +151,9 @@ for (const cap of capabilities) {
 ```
 
 This single inversion deletes `applyBuiltIns`, the direct hard imports,
-and the skill-catalog block from `prepare-prompt.ts`. During the
-compatibility phases, `resolveCapabilities` delegates to a temporary
-legacy adapter when `deps.capabilities === undefined`; in the final
-architecture it is just `deps.capabilities ?? []`.
+and the skill-catalog block from `prepare-prompt.ts`. There is no
+default adapter: omitted `deps.capabilities` and explicit `[]` both mean
+"no product capabilities." The CLI passes the capability list it wants.
 
 ## Bounded `read_file` replaces `read_artifact`
 
@@ -217,29 +214,24 @@ the next prompt.
 ## `HarnessDeps` changes
 
 Add:
-- `capabilities?: Capability[]` — folded by `prepare-prompt`. During
-  Phases 1-3, `undefined` means "use the legacy default capability
-  adapters" so existing `runInvocation` callers keep behavior; an
-  explicit `[]` opts into no capabilities. In Phase 4, after the legacy
-  flags are removed, `undefined` and `[]` both mean no capabilities.
+- `capabilities?: Capability[]` — folded by `prepare-prompt`.
+  `undefined` and `[]` both mean no capabilities; products pass the
+  capabilities they want.
 
-Remove (in Phase 4):
+Remove:
 - `skills?: SkillOptions | false`
 - `tasks?: boolean`
 - `subagents?: boolean`
 
-Each removed flag's behavior moves into the corresponding capability:
-- `tasks: false` did two things: hide wait/read/cancel and disable the
-  task runtime. Split those concepts. The runtime becomes always-on
-  kernel mechanism (`getOrCreateTaskServices` is cheap and no-op until a
-  tool starts work). Tool exposure is explicit: the CLI passes
-  `builtInTaskTools` via `deps.tools` when it wants the model to manage
-  background tasks. Omitting them gives a kernel with no task-management
-  tools in the model-facing list.
-- `subagents: false` was "don't inject spawn_subagent" — controlled by
-  whether `@leharness/subagents` is in `deps.capabilities`.
-- `skills: false` — controlled by whether `@leharness/skills` is in
-  `deps.capabilities`.
+Each removed flag's behavior moves into explicit product composition:
+- Task services are an always-on kernel mechanism
+  (`getOrCreateTaskServices` is cheap and no-op until a tool starts
+  work). Model-facing task tools appear only when the product passes a
+  task management capability.
+- `spawn_subagent` appears only when the product passes the subagent
+  capability.
+- `load_skill` and skill catalog prompt augmentation appear only when
+  the product passes the skills capability.
 
 ## Dependency direction
 
@@ -325,61 +317,44 @@ pnpm knip && pnpm smoke`. Phase commits land via PR.
 
 ### Phase 1 — Capability hook in the kernel
 
-**No new packages. Behavior identical.** The concrete capabilities still
-live in the kernel but register *through* the hook instead of being
-hard-wired.
+**No new packages. No default adapter.** The concrete capabilities
+still live in the kernel repo for now, but the product opts into them
+explicitly through `deps.capabilities`.
 
 Files touched:
 - `packages/harness/src/core/capability.ts` — **new.** Defines
   `Capability` and `CapabilityContext`.
-- `packages/harness/src/core/legacy-capabilities.ts` — **new,
-  temporary.** Converts the existing `skills/tasks/subagents` flags into
-  capability objects while Phases 1-3 preserve compatibility. This is
-  where the temporary import of `readArtifactTool` lives until Phase 2,
-  and where the imports of `createLoadSkillTool`,
-  `createSpawnSubagentTool`, and `builtInTaskTools` live after they leave
-  `prepare-prompt.ts`.
 - `packages/harness/src/core/prepare-prompt.ts` — replace `applyBuiltIns`
   + the skill block with the fold loop shown above. Remove the direct
   hard imports of `readArtifactTool`/`createLoadSkillTool`/
   `createSpawnSubagentTool`/`builtInTaskTools`. Delete `applyBuiltIns`.
-  If `deps.capabilities === undefined`, call the temporary
-  `legacyCapabilities(...)`; if it is an array, fold exactly that array.
 - `packages/harness/src/core/invocation.ts` — add
-  `capabilities?: Capability[]` to `HarnessDeps`. Leave the legacy
-  `skills/tasks/subagents` flags in place for this phase (Phase 4 removes
-  them).
+  `capabilities?: Capability[]` to `HarnessDeps`. Remove the old
+  `skills/tasks/subagents` flags.
 - `packages/harness/src/skills.ts` — add an exported
   `skillsCapability(opts: SkillOptions): Capability` that wraps the
   existing catalog logic.
 - `packages/harness/src/subagents.ts` — add an exported
   `subagentsCapability(services: SessionTaskServices): Capability`
   contributing `createSpawnSubagentTool(services)`.
-- `packages/harness/src/artifacts.ts` — add a temporary exported
-  `readArtifactCapability(): Capability` contributing
-  `readArtifactTool`. This exists only to preserve behavior until Phase 2
-  replaces `read_artifact` with bounded `read_file`.
-- `packages/harness/src/tasks.ts` — `builtInTaskTools` stays a public
-  export (the substrate's own tools). The CLI passes them via
-  `deps.tools` if it wants them.
+- `packages/harness/src/tasks.ts` — add
+  `taskManagementCapability(): Capability` for wait/read/cancel task
+  tools.
 - `apps/cli/src/cli.ts` — build the capability list and pass via
   `deps.capabilities`:
   ```ts
   const capabilities = [
+    taskManagementCapability(),
     subagentsCapability(services),
-    readArtifactCapability(),
     skillsCapability(skillOpts),
   ]
   ```
-  and add `builtInTaskTools` to `deps.tools` (it was auto-injected
-  before).
 
 Verification:
-- `pnpm smoke` green — the same tools and the same system prompt should
-  reach the model, just via the fold instead of hard injection.
+- `pnpm smoke` green.
 - Add/adjust one prompt-prep smoke that calls `runInvocation` without
-  `deps.capabilities` and asserts legacy defaults still appear, then with
-  `deps.capabilities: []` and asserts only caller-provided tools appear.
+  `deps.capabilities` and asserts only caller-provided tools appear, then
+  with `taskManagementCapability()` and asserts task tools appear.
 - Spot-check a TUI session: `/mcp`, `/help`, skills load, a bash bg task
   drains — same behavior as before.
 
@@ -416,9 +391,8 @@ Files touched:
   — remove `readArtifactTool` / `createReadArtifactTool` exports once the
   smokes no longer need them. Keep `readArtifact(...)` as an internal or
   exported helper only if tests or future inspectors still use it.
-- `packages/harness/src/core/legacy-capabilities.ts` and
-  `packages/harness/src/core/prepare-prompt.ts` — stop adding
-  `read_artifact` to the capability/tool list.
+- `packages/harness/src/core/prepare-prompt.ts` — no `read_artifact`
+  tool is added to the model-facing tool list.
 - `apps/tui/src/display/tools.ts` and transcript rendering, if they have
   special `read_artifact` labels, can drop them or treat old event logs as
   historical display only.
@@ -462,25 +436,22 @@ Per sub-phase:
 Verification per sub-phase: `pnpm -r build && pnpm biome check . &&
 pnpm knip && pnpm smoke` all green.
 
-### Phase 4 — Strip the kernel
+### Phase 4 — Package extraction cleanup
 
 Files touched:
-- `packages/harness/src/core/invocation.ts` — remove `skills`, `tasks`,
-  `subagents` from `HarnessDeps`. `runInvocation` now creates
-  `taskServices` unconditionally and passes them to `preparePrompt` /
-  `executeTools`; the model only sees task-management tools when the
-  caller explicitly includes `builtInTaskTools` in `deps.tools`.
-- `packages/harness/src/core/prepare-prompt.ts` — remove remaining
-  legacy-flag branches from the compatibility phase.
+- `packages/harness/src/core/invocation.ts` — keep the always-on task
+  services and explicit `capabilities` surface while package imports move
+  out of the kernel source tree.
+- `packages/harness/src/core/prepare-prompt.ts` — should already be only
+  the capability fold plus compaction defaults.
 - `packages/harness/src/index.ts` — barrel no longer re-exports the
   extracted modules (they're gone from the source tree after Phase 3
   anyway, but tidy any lingering refs).
 - `apps/cli/src/cli.ts` — assemble its full capability set explicitly,
   with no reliance on kernel defaults.
-- `apps/tui/src/app.tsx` / `apps/tui/src/index.tsx` — stop checking
-  `deps.tasks` for background-update subscriptions and stop reading
-  `deps.skills` for slash search. Receive explicit product-layer adapters
-  for background updates and skill discovery.
+- `apps/tui/src/app.tsx` / `apps/tui/src/index.tsx` — keep background
+  update subscriptions and skill discovery product-owned; do not add
+  kernel flags back.
 
 Verification:
 - Existing `pnpm smoke` green.

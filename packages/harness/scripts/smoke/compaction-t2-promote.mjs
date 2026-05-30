@@ -83,7 +83,6 @@ const baseDeps = {
   tools: [echoTool],
   model: "fake-model",
   systemPrompt: "smoke t2",
-  tasks: false,
   compaction: { maxInputTokens: budget, preserveRecentTurns: 1 },
 }
 

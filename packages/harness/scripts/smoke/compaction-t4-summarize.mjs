@@ -97,7 +97,6 @@ const baseDeps = {
   tools: [],
   model: "fake-main",
   systemPrompt: "smoke t4",
-  tasks: false,
   // 5 turns total, preserve the last turn so the M=4 picker can take
   // turns 0..3 as the window.
   compaction: { maxInputTokens: budget, preserveRecentTurns: 1 },

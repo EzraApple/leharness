@@ -81,7 +81,6 @@ const baseDeps = {
   tools: [],
   model: "fake-main",
   systemPrompt: "smoke fail",
-  tasks: false,
   compaction: { maxInputTokens: budget, preserveRecentTurns: 1 },
 }
 

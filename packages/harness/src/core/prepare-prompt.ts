@@ -11,11 +11,9 @@ import { contextWindowTokensForModel, type ReasoningEffort } from "../models.js"
 import type { CompactionOptions, PromptInput } from "../prompt.js"
 import { buildInput } from "../prompt.js"
 import type { Provider, ToolCallDelta } from "../provider/index.js"
-import type { SkillOptions } from "../skills.js"
 import type { SessionTaskServices } from "../tasks.js"
 import type { Tool } from "../tools.js"
 import type { Capability, CapabilityContext } from "./capability.js"
-import { legacyCapabilities } from "./legacy-capabilities.js"
 import type { InvocationState } from "./state.js"
 
 interface PreparedPrompt {
@@ -32,9 +30,6 @@ interface PrepareDeps {
   maxOutputTokens?: number
   compaction?: CompactionOptions
   reasoningEffort?: ReasoningEffort
-  skills?: SkillOptions | false
-  tasks?: boolean
-  subagents?: boolean
   capabilities?: Capability[]
 }
 
@@ -51,7 +46,7 @@ export async function preparePrompt(
   userText: string | undefined,
   deps: PrepareDeps,
   options: PrepareOptions,
-  taskServices?: SessionTaskServices,
+  taskServices: SessionTaskServices,
 ): Promise<PreparedPrompt> {
   const capabilityContext: CapabilityContext = {
     sessionId: invocation.sessionId,
@@ -59,14 +54,7 @@ export async function preparePrompt(
     userText,
     taskServices,
   }
-  const capabilities =
-    deps.capabilities ??
-    legacyCapabilities({
-      skills: deps.skills,
-      tasks: deps.tasks,
-      subagents: deps.subagents,
-      taskServices,
-    })
+  const capabilities = deps.capabilities ?? []
   const { system, tools } = await foldCapabilities(
     deps.systemPrompt,
     deps.tools,
