@@ -6,6 +6,7 @@ export type ToolStatus = "pending" | "completed" | "failed"
 type BackgroundPhase = "started" | "completed" | "failed" | "cancelled"
 
 interface BackgroundMarker {
+  active?: boolean
   phase: BackgroundPhase
   taskId: string
   reason?: "parent" | "user" | "process_exited"

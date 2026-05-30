@@ -11,10 +11,11 @@ export function ActiveTasks({ tasks, width }: { tasks: Map<string, ActiveTask>; 
   const list = Array.from(tasks.values()).sort((a, b) => a.startedAt.localeCompare(b.startedAt))
   const rowWidth = Math.max(24, width - 4)
   const line = formatLine(list, now, rowWidth)
+  const tone = list[0]?.kind === "delegated" ? color.userChevron : color.background
 
   return (
     <Box marginTop={1}>
-      <Text color={color.background}>{padToWidth(line, rowWidth)}</Text>
+      <Text color={tone}>{padToWidth(line, rowWidth)}</Text>
     </Box>
   )
 }
@@ -23,14 +24,23 @@ function formatLine(tasks: ActiveTask[], now: number, width: number): string {
   const first = tasks[0]
   if (first === undefined) return ""
   const elapsed = formatElapsed(elapsedSeconds(first, now))
-  const head = `⇣ ${tasks.length} bg · ${labelFor(first)} (${elapsed})`
+  const noun = taskNoun(tasks)
+  const head = `⇣ ${tasks.length} ${noun} · ${labelFor(first)} (${elapsed})`
   if (tasks.length === 1) return trimToWidth(head, width)
   return trimToWidth(`${head} + ${tasks.length - 1} more`, width)
 }
 
 function labelFor(task: ActiveTask): string {
+  if (task.kind === "delegated") return task.display.target ?? "subagent"
   const body = task.command.length > 0 ? task.command : task.kind
   return body.replace(/\s+/g, " ").trim()
+}
+
+function taskNoun(tasks: ActiveTask[]): string {
+  const delegatedCount = tasks.filter((task) => task.kind === "delegated").length
+  if (delegatedCount === tasks.length) return tasks.length === 1 ? "subagent" : "subagents"
+  if (delegatedCount > 0) return "bg + subagent"
+  return "bg"
 }
 
 function elapsedSeconds(task: ActiveTask, now: number): number {
