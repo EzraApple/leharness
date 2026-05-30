@@ -1,6 +1,7 @@
 import { Box, Text } from "ink"
 import stringWidth from "string-width"
 import wrapAnsi from "wrap-ansi"
+import { color } from "../theme.js"
 
 const COLUMN_GAP = 4
 const MAX_NAME_WIDTH = 30
@@ -32,7 +33,7 @@ export function SlashMenu({
     <Box flexDirection="column" marginTop={0} paddingX={1}>
       {items.map((item, index) => {
         const selected = index === selectedIndex
-        const color = selected ? "blue" : "gray"
+        const rowColor = selected ? color.selected : color.meta
         const descriptionLines = wrapDescription(item.description, descriptionWidth)
         const continuation = descriptionLines[1]
         const name = padToWidth(trimToWidth(`${prefix}${item.name}`, nameWidth), nameWidth)
@@ -41,16 +42,17 @@ export function SlashMenu({
           <Box flexDirection="column" key={`${item.kind}:${item.name}`}>
             <Box>
               <Box marginRight={COLUMN_GAP} width={nameWidth}>
-                <Text color={color}>{name}</Text>
+                <Text color={rowColor}>{name}</Text>
               </Box>
-              <Text color={color}>{descriptionLines[0] ?? ""}</Text>
+              <Text color={rowColor}>{descriptionLines[0] ?? ""}</Text>
+              {item.kind === "skill" ? <Text color={color.meta}>{"  skill"}</Text> : null}
             </Box>
             {continuation === undefined ? null : (
               <Box>
                 <Box marginRight={COLUMN_GAP} width={nameWidth}>
                   <Text> </Text>
                 </Box>
-                <Text color={color}>{continuation}</Text>
+                <Text color={rowColor}>{continuation}</Text>
               </Box>
             )}
           </Box>

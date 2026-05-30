@@ -25,8 +25,7 @@ interface Pending {
 export interface McpClientOptions {
   clientName: string
   clientVersion: string
-  // Per-request timeout. A hung server shouldn't wedge the whole
-  // session's startup.
+  // Per-request timeout so a hung server can't wedge startup.
   requestTimeoutMs?: number
 }
 
@@ -49,8 +48,8 @@ export class McpClient {
     return this.serverInfo
   }
 
-  // Handshake: start the transport, send initialize, then the
-  // notifications/initialized notification per the MCP lifecycle.
+  // The MCP lifecycle requires a notifications/initialized notice once the
+  // initialize request succeeds.
   async initialize(): Promise<InitializeResult> {
     await this.transport.start()
     const result = (await this.request(
@@ -115,7 +114,7 @@ export class McpClient {
   }
 
   private handleMessage(msg: IncomingMessage): void {
-    if (!("id" in msg)) return // notification — no tools-only handling yet
+    if (!("id" in msg)) return
     // A JSON-RPC error can carry id=null (e.g. parse errors not tied to a
     // request); we can't correlate those to a pending call.
     if (msg.id === null) return

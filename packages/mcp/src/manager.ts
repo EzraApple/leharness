@@ -46,11 +46,9 @@ export interface McpToolDescriptor {
 
 export interface ConnectOptions {
   // App-supplied: begin a loopback OAuth authorization — bind the redirect
-  // listener (on a free port, no hardcoded-port collision) and return its
-  // URI plus a code waiter. Only invoked when interactiveAuth is true
-  // (one-shot CLI) or via authorizeServer().
+  // listener and return its URI plus a code waiter. Invoked only when
+  // interactiveAuth is true or via authorizeServer().
   beginAuthorization: () => Promise<LoopbackAuthorization>
-  // Forwarded server stderr (stdio) for debugging.
   onStderr?: (server: string, line: string) => void
   // When false (TUI startup), OAuth servers needing a browser flow are
   // marked auth_required instead of blocking. Defaults to true.
@@ -70,8 +68,8 @@ interface ConnectedServer {
   serverInfo?: { name?: string; version?: string }
 }
 
-// How many recent stderr lines to retain per server for diagnostics.
-// Enough to capture a multi-line error dump without unbounded growth.
+// Recent stderr lines kept per server — enough for a multi-line error dump,
+// without unbounded growth.
 const STDERR_TAIL_LIMIT = 12
 
 export class McpManager {
@@ -96,7 +94,6 @@ export class McpManager {
     }
   }
 
-  // Subscribe to status transitions; returns an unsubscribe.
   onStatusChange(listener: (name: string, status: McpStatus) => void): () => void {
     this.listeners.add(listener)
     return () => this.listeners.delete(listener)
@@ -167,7 +164,6 @@ export class McpManager {
     await Promise.all(toConnect.map((server) => this.connectOne(server, opts)))
   }
 
-  // Retry a single server (after the user edits config, or a crash).
   async reconnect(name: string): Promise<void> {
     const server = this.serverByName.get(name)
     if (server === undefined || this.lastConnectOptions === undefined) return
@@ -187,7 +183,6 @@ export class McpManager {
     await this.connectOne(server, { ...this.lastConnectOptions, interactiveAuth: true })
   }
 
-  // Clear a server's stored tokens and mark it auth_required again.
   async logout(name: string): Promise<void> {
     await this.store.clear(name)
     await this.disconnectOne(name)
