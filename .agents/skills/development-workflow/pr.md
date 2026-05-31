@@ -160,6 +160,46 @@ flowchart TD
 
 After the diagram, add 1-3 bullets explaining the important review point. Do not add a diagram just to decorate the PR.
 
+## Pseudocode and Snippets
+
+Use concise pseudocode or code snippets when the important review point is local logic, ordering, or core-loop behavior rather than package-to-package architecture.
+
+Use diagrams for:
+
+- Multi-component flow, ownership, or runtime boundaries.
+- Before/after architecture across packages.
+- Information flow between invocation, event log, prompt projection, tools, MCP, CLI, or TUI.
+
+Use pseudocode or a short code snippet for:
+
+- Core loop ordering, such as when events are recorded relative to tool execution.
+- Branching logic that changed but stays inside one package.
+- Parsing or normalization rules where the exact order matters.
+- Retry, cancellation, drain, or stream handling that is clearer as ordered steps.
+- A small before/after algorithm where a diagram would be too abstract.
+
+Keep snippets tight: roughly 5-20 lines, omit incidental names, and show only the logic reviewers need to reason about. Label snippets as illustrative pseudocode when they are not exact code.
+
+Good pseudocode:
+
+```ts
+// Illustrative ordering only.
+record("tool.started")
+const result = await runTool(call)
+if (result.kind === "started") {
+  record("task.started", result.task)
+  return
+}
+record(result.kind === "ok" ? "tool.completed" : "tool.failed")
+```
+
+Good explanation after the snippet:
+
+- The important change is that task-starting tools now record the foreground tool call before handing ownership to the background task.
+- Existing transcript and prompt projections still read from the same event log.
+
+Do not paste large production functions into the PR body. Link to the owning file if reviewers need the exact implementation.
+
 ## Behavior Changes
 
 Use this section when runtime behavior changes in a way reviewers should reason about.
@@ -211,7 +251,7 @@ Match the PR body to the PR's size and risk.
 
 - **Tiny fix:** one-sentence abstract plus `## ***Testing Done***`.
 - **Small bug fix:** abstract, concise context if needed, changes, testing.
-- **Medium behavior change:** abstract, context, concept-grouped changes, testing, and any design decision reviewers would ask about.
+- **Medium behavior change:** abstract, context, concept-grouped changes, testing, and any design decision reviewers would ask about. Add concise pseudocode when ordering or local logic is the review risk.
 - **Large or cross-boundary change:** abstract, context, changes by ownership boundary, design decisions, Mermaid diagram, behavior changes, risk/rollback, testing.
 - **Agent guidance or lint PR:** explain what future agents or lint rules will now enforce, why automation vs. guidance was chosen, and how skill layout is validated.
 
@@ -229,6 +269,7 @@ Before publishing, prune the body:
 - Using wide Markdown tables in the PR body.
 - Adding Mermaid for decoration instead of clarity.
 - Missing Mermaid when a large PR changes package or runtime boundaries.
+- Missing concise pseudocode when the PR changes core-loop ordering or local information flow that a diagram would hide.
 - Putting tests under `Changes`.
 - Publishing empty or N/A sections.
 - Writing "various improvements" instead of the specific system improvement.
