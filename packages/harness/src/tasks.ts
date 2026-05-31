@@ -84,7 +84,7 @@ export class MessageQueue {
   private buffer: Message[] = []
   private listeners = new Set<MessageListener>()
 
-  send(message: Message): void {
+  send(message: Message) {
     this.buffer.push(message)
     for (const listener of this.listeners) {
       try {
@@ -122,7 +122,7 @@ export class TaskRegistry {
   private executors = new Map<string, TaskExecutor>()
   private terminalResolvers = new Map<string, Array<(state: TaskState) => void>>()
 
-  register(task: Task, executor: TaskExecutor): void {
+  register(task: Task, executor: TaskExecutor) {
     this.tasks.set(task.id, task)
     this.executors.set(task.id, executor)
   }
@@ -143,7 +143,7 @@ export class TaskRegistry {
     return this.executors.get(taskId)
   }
 
-  markTerminal(taskId: string, state: TaskState): void {
+  markTerminal(taskId: string, state: TaskState) {
     const task = this.tasks.get(taskId)
     if (task === undefined) return
     task.state = state
@@ -202,7 +202,7 @@ export function getOrCreateTaskServices(sessionId: string): SessionTaskServices 
   return services
 }
 
-export function registerTaskExecutor(services: SessionTaskServices, executor: TaskExecutor): void {
+export function registerTaskExecutor(services: SessionTaskServices, executor: TaskExecutor) {
   services.executors.set(executor.kind, executor)
 }
 
@@ -212,7 +212,7 @@ export function registerTaskExecutor(services: SessionTaskServices, executor: Ta
 // services map. Intended for tests and long-lived consumers that churn
 // through many sessions; the CLI / TUI don't need to call this because the
 // process owns one session for its lifetime.
-export async function disposeTaskServices(sessionId: string): Promise<void> {
+export async function disposeTaskServices(sessionId: string) {
   const services = servicesBySession.get(sessionId)
   if (services === undefined) return
   servicesBySession.delete(sessionId)

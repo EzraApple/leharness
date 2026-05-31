@@ -21,6 +21,8 @@ import {
   type Provider,
   type ProviderRequest,
   type ProviderResponse,
+  readStringField,
+  readToolCall,
   resolveArtifactPath,
   runInvocation,
   type Tool,
@@ -93,16 +95,16 @@ function baseDeps(
   assert.equal(created?.byteCount, largeSize)
   assert.equal(created?.sourceCallId, "call_1")
   const completed = events.find(
-    (event) =>
-      event.type === "tool.completed" &&
-      (event.call as { name?: string } | undefined)?.name === "echo",
+    (event) => event.type === "tool.completed" && readToolCall(event.call)?.name === "echo",
   )
   assert.ok(completed, "expected tool.completed for echo")
   assert.equal(typeof completed?.artifactId, "string")
   assert.equal(completed?.artifactId, created?.id)
   assert.match(String(completed?.result ?? ""), /^\[artifact: artifact_/)
   // File exists on disk and matches the original.
-  const artifactPath = resolveArtifactPath(sessionId, String(created?.id ?? ""))
+  const artifactId = readStringField(created, "id")
+  assert.ok(artifactId, "artifact.created should carry id")
+  const artifactPath = resolveArtifactPath(sessionId, artifactId)
   const onDisk = await fs.readFile(artifactPath, "utf8")
   assert.equal(onDisk.length, largeSize)
   await disposeTaskServices(sessionId)
@@ -125,9 +127,7 @@ function baseDeps(
   const created = events.find((event) => event.type === "artifact.created")
   assert.equal(created, undefined, "small output should not produce artifact.created")
   const completed = events.find(
-    (event) =>
-      event.type === "tool.completed" &&
-      (event.call as { name?: string } | undefined)?.name === "echo",
+    (event) => event.type === "tool.completed" && readToolCall(event.call)?.name === "echo",
   )
   assert.equal(completed?.artifactId, undefined, "no artifactId on small inline result")
   assert.equal(String(completed?.result ?? "").startsWith("["), false)
@@ -160,7 +160,8 @@ function baseDeps(
   const events = await runInvocation(sessionId, "go", baseDeps(provider, tool))
   const created = events.find((event) => event.type === "artifact.created")
   assert.ok(created, "expected artifact.created")
-  const artifactId = String(created?.id ?? "")
+  const artifactId = readStringField(created, "id")
+  assert.ok(artifactId, "artifact.created should carry id")
   // Use the read_artifact path directly via the harness's exported function.
   const onDisk = await fs.readFile(resolveArtifactPath(sessionId, artifactId), "utf8")
   assert.equal(onDisk.length, largeSize, "on-disk content matches the original size")
@@ -222,13 +223,13 @@ function baseDeps(
   // Run once to spawn the artifact; capture the id from events.
   const firstEvents = await runInvocation(sessionId, "go", baseDeps(provider, tool))
   const created = firstEvents.find((event) => event.type === "artifact.created")
-  pendingArtifactId = String(created?.id ?? "")
+  pendingArtifactId = readStringField(created, "id")
+  assert.ok(pendingArtifactId, "artifact.created should carry id")
   // Run again with the same provider closure — now it'll fire read_artifact.
   const followUp = await runInvocation(sessionId, undefined, baseDeps(provider, tool))
   const readResult = followUp.find(
     (event) =>
-      event.type === "tool.completed" &&
-      (event.call as { name?: string } | undefined)?.name === "read_artifact",
+      event.type === "tool.completed" && readToolCall(event.call)?.name === "read_artifact",
   )
   assert.ok(readResult, "expected read_artifact tool.completed event")
   const body = String(readResult?.result ?? "")
@@ -281,7 +282,11 @@ function baseDeps(
   const created = drained.find((event) => event.type === "artifact.created")
   assert.ok(created, "expected artifact.created for the large drained task result")
   const completed = drained.find((event) => event.type === "task.completed")
-  assert.equal(typeof completed?.artifactId, "string", "task.completed should carry artifactId")
+  assert.equal(
+    typeof readStringField(completed, "artifactId"),
+    "string",
+    "task.completed should carry artifactId",
+  )
   assert.match(String(completed?.result ?? ""), /^\[artifact: artifact_/)
   await disposeTaskServices(sessionId)
 }

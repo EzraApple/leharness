@@ -8,6 +8,7 @@ import * as fs from "node:fs/promises"
 import * as os from "node:os"
 import * as path from "node:path"
 import { loadEvents, runInvocation } from "../../dist/index.js"
+import { formatValue } from "../format-value.mjs"
 
 function assert(cond, msg) {
   if (!cond) {
@@ -85,18 +86,18 @@ assert(
 const compaction = compactionEvents[0]
 assert(
   compaction.strategy === "pressure_gradient",
-  `expected pressure_gradient strategy, got ${compaction.strategy}`,
+  `expected pressure_gradient strategy, got ${formatValue(compaction.strategy)}`,
 )
 assert(
   Array.isArray(compaction.watermarksCrossed) &&
     compaction.watermarksCrossed.includes("drop_old_reasoning"),
-  `expected watermarksCrossed to include drop_old_reasoning, got ${JSON.stringify(compaction.watermarksCrossed)}`,
+  `expected watermarksCrossed to include drop_old_reasoning, got ${formatValue(compaction.watermarksCrossed)}`,
 )
 assert(!compaction.watermarksCrossed.includes("promote_inline_results"), "T2 should not have fired")
 assert(!compaction.watermarksCrossed.includes("summarize_one_window"), "T4 should not have fired")
 assert(
   compaction.droppedReasoningCount >= 1,
-  `expected at least one reasoning drop, got ${compaction.droppedReasoningCount}`,
+  `expected at least one reasoning drop, got ${formatValue(compaction.droppedReasoningCount)}`,
 )
 
 // The PROJECTED prompt sent to the provider on step 2 should have the

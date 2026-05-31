@@ -91,12 +91,12 @@ export function useInvocation(opts: {
     return subscribeToBackgroundUpdates(sessionId, scheduleAutoInvocation)
   }, [tasksEnabled, sessionId])
 
-  function replaceQueue(messages: QueuedMessage[]): void {
+  function replaceQueue(messages: QueuedMessage[]) {
     queuedMessagesRef.current = messages
     setQueuedMessages(messages)
   }
 
-  function enqueue(text: string): void {
+  function enqueue(text: string) {
     const id = `queued-${queuedMessageIdRef.current}`
     queuedMessageIdRef.current += 1
     replaceQueue([...queuedMessagesRef.current, { id, text }])
@@ -125,7 +125,7 @@ export function useInvocation(opts: {
     return true
   }
 
-  async function start(text: string | undefined): Promise<void> {
+  async function start(text: string | undefined) {
     if (runningRef.current) return
     const invocationText = text === undefined ? undefined : prepareText(text)
     if (text !== undefined && invocationText === undefined) {

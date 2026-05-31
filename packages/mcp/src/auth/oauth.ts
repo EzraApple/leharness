@@ -10,6 +10,7 @@
 // keeping this module UI-free.
 
 import { createHash, randomBytes } from "node:crypto"
+import { readArrayField, readNumberField, readStringField } from "../readers.js"
 import type { StoredTokens, TokenStore } from "./token-store.js"
 
 // Refresh a little before actual expiry to avoid racing the clock.
@@ -173,12 +174,11 @@ async function discoverAuthServerIssuer(
   const resourceMetadataUrl =
     parseResourceMetadataUrl(wwwAuthenticate) ?? wellKnown(serverUrl, "oauth-protected-resource")
   try {
-    const meta = (await fetchJson(resourceMetadataUrl)) as { authorization_servers?: unknown }
-    if (
-      Array.isArray(meta.authorization_servers) &&
-      typeof meta.authorization_servers[0] === "string"
-    ) {
-      return meta.authorization_servers[0]
+    const meta = await fetchJson(resourceMetadataUrl)
+    const authorizationServers = readArrayField(meta, "authorization_servers")
+    const first = authorizationServers[0]
+    if (typeof first === "string") {
+      return first
     }
   } catch {
     // no resource metadata — fall back to treating the server origin as
@@ -191,20 +191,14 @@ async function fetchAuthServerMetadata(issuer: string): Promise<AuthServerMetada
   // Try RFC 8414 then OpenID Connect discovery.
   for (const suffix of ["oauth-authorization-server", "openid-configuration"]) {
     try {
-      const meta = (await fetchJson(wellKnown(issuer, suffix))) as {
-        authorization_endpoint?: unknown
-        token_endpoint?: unknown
-        registration_endpoint?: unknown
-      }
-      if (
-        typeof meta.authorization_endpoint === "string" &&
-        typeof meta.token_endpoint === "string"
-      ) {
+      const meta = await fetchJson(wellKnown(issuer, suffix))
+      const authorizationEndpoint = readStringField(meta, "authorization_endpoint")
+      const tokenEndpoint = readStringField(meta, "token_endpoint")
+      if (authorizationEndpoint !== undefined && tokenEndpoint !== undefined) {
         return {
-          authorizationEndpoint: meta.authorization_endpoint,
-          tokenEndpoint: meta.token_endpoint,
-          registrationEndpoint:
-            typeof meta.registration_endpoint === "string" ? meta.registration_endpoint : undefined,
+          authorizationEndpoint,
+          tokenEndpoint,
+          registrationEndpoint: readStringField(meta, "registration_endpoint"),
         }
       }
     } catch {
@@ -243,13 +237,14 @@ async function registerClient(
   if (!res.ok) {
     throw new Error(`dynamic client registration failed (${res.status})`)
   }
-  const json = (await res.json()) as { client_id?: unknown; client_secret?: unknown }
-  if (typeof json.client_id !== "string") {
+  const json = await res.json()
+  const clientId = readStringField(json, "client_id")
+  if (clientId === undefined) {
     throw new Error("dynamic client registration returned no client_id")
   }
   return {
-    clientId: json.client_id,
-    clientSecret: typeof json.client_secret === "string" ? json.client_secret : undefined,
+    clientId,
+    clientSecret: readStringField(json, "client_secret"),
   }
 }
 
@@ -336,19 +331,16 @@ async function postToken(tokenEndpoint: string, body: URLSearchParams): Promise<
   if (!res.ok) {
     throw new Error(`token endpoint error (${res.status}): ${(await res.text()).slice(0, 300)}`)
   }
-  const json = (await res.json()) as {
-    access_token?: unknown
-    refresh_token?: unknown
-    expires_in?: unknown
-  }
-  if (typeof json.access_token !== "string") {
+  const json = await res.json()
+  const accessToken = readStringField(json, "access_token")
+  if (accessToken === undefined) {
     throw new Error("token response missing access_token")
   }
+  const expiresIn = readNumberField(json, "expires_in")
   return {
-    accessToken: json.access_token,
-    refreshToken: typeof json.refresh_token === "string" ? json.refresh_token : undefined,
-    expiresAt:
-      typeof json.expires_in === "number" ? Date.now() + json.expires_in * 1000 : undefined,
+    accessToken,
+    refreshToken: readStringField(json, "refresh_token"),
+    expiresAt: typeof expiresIn === "number" ? Date.now() + expiresIn * 1000 : undefined,
   }
 }
 

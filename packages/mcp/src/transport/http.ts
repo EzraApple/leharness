@@ -39,20 +39,20 @@ export class HttpTransport implements Transport {
 
   constructor(private readonly options: HttpTransportOptions) {}
 
-  onMessage(handler: (message: IncomingMessage) => void): void {
+  onMessage(handler: (message: IncomingMessage) => void) {
     this.messageHandler = handler
   }
 
-  onClose(_handler: (reason: string) => void): void {
+  onClose(_handler: (reason: string) => void) {
     // No connection to drop: per-request failures surface as thrown errors
     // from send() instead.
   }
 
-  async start(): Promise<void> {
+  async start() {
     // Nothing to open; the first send() establishes the session.
   }
 
-  async send(message: JsonRpcRequest | JsonRpcNotification): Promise<void> {
+  async send(message: JsonRpcRequest | JsonRpcNotification) {
     if (this.closed) throw new Error("http transport closed")
 
     const headers: Record<string, string> = {
@@ -89,16 +89,16 @@ export class HttpTransport implements Transport {
     if (contentType.includes("text/event-stream")) {
       await this.consumeSse(res)
     } else {
-      const payload = (await res.json()) as unknown
+      const payload = await res.json()
       this.dispatch(payload)
     }
   }
 
-  async close(): Promise<void> {
+  async close() {
     this.closed = true
   }
 
-  private async consumeSse(res: Response): Promise<void> {
+  private async consumeSse(res: Response) {
     const parser = createParser({
       onEvent: (event) => {
         if (event.data.length === 0) return
@@ -119,7 +119,7 @@ export class HttpTransport implements Transport {
     }
   }
 
-  private dispatch(payload: unknown): void {
+  private dispatch(payload: unknown) {
     if (isIncomingMessage(payload)) this.messageHandler?.(payload)
   }
 }

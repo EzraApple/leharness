@@ -26,19 +26,19 @@ export class StdioTransport implements Transport {
 
   constructor(private readonly options: StdioTransportOptions) {}
 
-  onMessage(handler: (message: IncomingMessage) => void): void {
+  onMessage(handler: (message: IncomingMessage) => void) {
     this.messageHandler = handler
   }
 
-  onClose(handler: (reason: string) => void): void {
+  onClose(handler: (reason: string) => void) {
     this.closeHandler = handler
   }
 
-  async start(): Promise<void> {
+  async start() {
     const proc = spawn(this.options.command, this.options.args ?? [], {
       env: { ...process.env, ...this.options.env },
       stdio: ["pipe", "pipe", "pipe"],
-    }) as ChildProcessWithoutNullStreams
+    })
     this.proc = proc
 
     proc.stdout.setEncoding("utf8")
@@ -64,21 +64,21 @@ export class StdioTransport implements Transport {
     // actually speaks MCP.
   }
 
-  async send(message: JsonRpcRequest | JsonRpcNotification): Promise<void> {
+  async send(message: JsonRpcRequest | JsonRpcNotification) {
     if (this.proc === undefined || this.closed) {
       throw new Error("stdio transport not running")
     }
     this.proc.stdin.write(`${JSON.stringify(message)}\n`)
   }
 
-  async close(): Promise<void> {
+  async close() {
     this.closed = true
     if (this.proc !== undefined && this.proc.exitCode === null) {
       this.proc.kill("SIGTERM")
     }
   }
 
-  private onStdout(chunk: string): void {
+  private onStdout(chunk: string) {
     this.stdoutBuffer += chunk
     let newlineIndex = this.stdoutBuffer.indexOf("\n")
     while (newlineIndex !== -1) {
@@ -89,7 +89,7 @@ export class StdioTransport implements Transport {
     }
   }
 
-  private dispatchLine(line: string): void {
+  private dispatchLine(line: string) {
     let parsed: unknown
     try {
       parsed = JSON.parse(line)

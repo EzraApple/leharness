@@ -82,12 +82,12 @@ assert.equal(errResult.kind, "error")
 assert.equal(errResult.kind === "error" ? errResult.error : "", "permission denied")
 
 // 5. Back-compat: a zod tool next to the MCP tool still validates as before.
-const zodTool: Tool = {
+const zodTool: Tool<{ count: number }> = {
   name: "zod_tool",
   description: "A normal zod-native tool.",
   schema: z.object({ count: z.number().int() }),
   async execute(args) {
-    return { kind: "ok", output: `count=${(args as { count: number }).count}` }
+    return { kind: "ok", output: `count=${args.count}` }
   },
 }
 const badArgs = await executeToolCall(

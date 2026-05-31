@@ -8,6 +8,7 @@
 import { promises as fs } from "node:fs"
 import path from "node:path"
 import { ulid } from "ulid"
+import { isRecord, readErrorCode, readErrorMessage } from "./readers.js"
 
 export interface EventEnvelope {
   v: 1
@@ -38,7 +39,7 @@ export function nowIso(): string {
   return new Date().toISOString()
 }
 
-export async function appendEvent(sessionId: string, event: Event): Promise<void> {
+export async function appendEvent(sessionId: string, event: Event) {
   const filePath = resolveSessionPath(sessionId)
   await fs.mkdir(path.dirname(filePath), { recursive: true })
   await fs.appendFile(filePath, `${JSON.stringify(event)}\n`)
@@ -50,7 +51,7 @@ export async function loadEvents(sessionId: string): Promise<Event[]> {
   try {
     raw = await fs.readFile(filePath, "utf8")
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return []
+    if (readErrorCode(err) === "ENOENT") return []
     throw err
   }
   const out: Event[] = []
@@ -58,11 +59,30 @@ export async function loadEvents(sessionId: string): Promise<Event[]> {
   for (const [i, line] of lines.entries()) {
     if (line.length === 0) continue
     try {
-      out.push(JSON.parse(line) as Event)
+      out.push(parseEvent(JSON.parse(line)))
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
+      const message = readErrorMessage(err)
       throw new Error(`Failed to parse event at line ${i + 1} (sessionId=${sessionId}): ${message}`)
     }
   }
   return out
+}
+
+function parseEvent(value: unknown): Event {
+  if (!isRecord(value)) {
+    throw new Error("event is not an object")
+  }
+  if (value.v !== 1) {
+    throw new Error("event has unsupported version")
+  }
+  if (typeof value.id !== "string") {
+    throw new Error("event is missing id")
+  }
+  if (typeof value.ts !== "string") {
+    throw new Error("event is missing ts")
+  }
+  if (typeof value.type !== "string") {
+    throw new Error("event is missing type")
+  }
+  return { ...value, v: 1, id: value.id, ts: value.ts, type: value.type }
 }

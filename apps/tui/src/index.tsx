@@ -15,7 +15,7 @@ export async function runTui(
   deps: HarnessDeps,
   resuming: boolean,
   mcp?: McpControls,
-): Promise<void> {
+) {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     throw new Error("tui mode requires an interactive TTY")
   }
@@ -47,6 +47,6 @@ async function runPrompt(
     onText: (delta: string) => void
     signal: AbortSignal
   },
-): Promise<void> {
+) {
   await runInvocation(sessionId, text, deps, options)
 }

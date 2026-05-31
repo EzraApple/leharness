@@ -95,7 +95,7 @@ When an MCP server is \`ready\`, its tools appear to you namespaced as
 other tool.
 `
 
-export function registerLeharnessTuiSkill(): void {
+export function registerLeharnessTuiSkill() {
   registerBuiltinSkill({
     name: "leharness-tui",
     description:

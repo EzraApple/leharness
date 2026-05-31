@@ -1,4 +1,11 @@
-import type { Event, ToolCall } from "@leharness/harness"
+import {
+  type Event,
+  readRecordField,
+  readStringField,
+  readToolCall,
+  readToolCalls,
+  type ToolCall,
+} from "@leharness/harness"
 
 const RESET = "\x1b[0m"
 const DIM = "\x1b[2m"
@@ -26,35 +33,43 @@ export class LiveRenderer {
     this.out = out
   }
 
-  echoUser(text: string): void {
+  echoUser(text: string) {
     this.out.write(`${bold("> ")}${text}\n`)
   }
 
-  onText(delta: string): void {
+  onText(delta: string) {
     this.writingAssistant = true
     this.out.write(delta)
   }
 
-  onEvent(event: Event): void {
+  onEvent(event: Event) {
     switch (event.type) {
       case "model.completed": {
         if (this.writingAssistant) {
           this.endAssistantLine()
         } else {
-          const text = (event.text as string) ?? ""
+          const text = readStringField(event, "text") ?? ""
           if (text.length > 0) this.out.write(`${text}\n`)
         }
-        for (const tc of (event.toolCalls as ToolCall[]) ?? []) {
+        for (const tc of readToolCalls(event.toolCalls)) {
           this.renderToolCall(tc)
         }
         break
       }
-      case "tool.completed":
-        this.renderToolResult(event.call as ToolCall, event.result as string, readSummary(event))
+      case "tool.completed": {
+        const call = readToolCall(event.call)
+        if (call !== undefined) {
+          this.renderToolResult(call, readStringField(event, "result") ?? "", readSummary(event))
+        }
         break
-      case "tool.failed":
-        this.renderToolError(event.call as ToolCall, event.error as string, readSummary(event))
+      }
+      case "tool.failed": {
+        const call = readToolCall(event.call)
+        if (call !== undefined) {
+          this.renderToolError(call, readStringField(event, "error") ?? "", readSummary(event))
+        }
         break
+      }
       case "task.started":
         this.renderTaskStarted(event)
         break
@@ -64,38 +79,46 @@ export class LiveRenderer {
         this.renderTaskTerminal(event)
         break
       case "model.failed":
-        this.renderModelError(event.error as string)
+        this.renderModelError(readStringField(event, "error") ?? "")
         break
       case "agent.finished":
         this.endAssistantLine()
-        this.renderTerminalReason(event.reason as string)
+        this.renderTerminalReason(readStringField(event, "reason"))
         this.out.write("\n")
         break
     }
   }
 
-  replayHistory(events: Event[]): void {
+  replayHistory(events: Event[]) {
     if (events.length === 0) return
     this.out.write(dim("--- prior session ---\n"))
     for (const event of events) {
       switch (event.type) {
         case "invocation.received":
-          this.echoUser(event.text as string)
+          this.echoUser(readStringField(event, "text") ?? "")
           break
         case "model.completed": {
-          const text = (event.text as string) ?? ""
+          const text = readStringField(event, "text") ?? ""
           if (text.length > 0) this.out.write(`${text}\n`)
-          for (const tc of (event.toolCalls as ToolCall[]) ?? []) {
+          for (const tc of readToolCalls(event.toolCalls)) {
             this.renderToolCall(tc)
           }
           break
         }
-        case "tool.completed":
-          this.renderToolResult(event.call as ToolCall, event.result as string, readSummary(event))
+        case "tool.completed": {
+          const call = readToolCall(event.call)
+          if (call !== undefined) {
+            this.renderToolResult(call, readStringField(event, "result") ?? "", readSummary(event))
+          }
           break
-        case "tool.failed":
-          this.renderToolError(event.call as ToolCall, event.error as string, readSummary(event))
+        }
+        case "tool.failed": {
+          const call = readToolCall(event.call)
+          if (call !== undefined) {
+            this.renderToolError(call, readStringField(event, "error") ?? "", readSummary(event))
+          }
           break
+        }
         case "task.started":
           this.renderTaskStarted(event)
           break
@@ -105,18 +128,18 @@ export class LiveRenderer {
           this.renderTaskTerminal(event)
           break
         case "model.failed":
-          this.renderModelError(event.error as string)
+          this.renderModelError(readStringField(event, "error") ?? "")
           break
       }
     }
     this.out.write(`${dim("---")}\n\n`)
   }
 
-  private renderToolCall(tc: ToolCall): void {
+  private renderToolCall(tc: ToolCall) {
     this.out.write(`${dim("→")} ${cyan(`${tc.name}(${argsPreview(tc.args)})`)}\n`)
   }
 
-  private renderToolResult(call: ToolCall, result: string, summary: string | undefined): void {
+  private renderToolResult(call: ToolCall, result: string, summary: string | undefined) {
     this.out.write(`${dim("←")} ${cyan(`${call.name} ok`)}\n`)
     const body = summary ?? summarize(result, 6, 600)
     for (const line of body.split("\n")) {
@@ -124,19 +147,22 @@ export class LiveRenderer {
     }
   }
 
-  private renderToolError(call: ToolCall, error: string, summary: string | undefined): void {
+  private renderToolError(call: ToolCall, error: string, summary: string | undefined) {
     this.out.write(`${red(`✗ ${call.name} failed`)}\n`)
     this.out.write(`${red(`✗ ${summary ?? error}`)}\n`)
   }
 
-  private renderTaskStarted(event: Event): void {
-    const task = event.task as { id?: string; kind?: string; payload?: { command?: string } }
-    const command = task?.payload?.command ?? ""
+  private renderTaskStarted(event: Event) {
+    const task = readRecordField(event, "task")
+    const payload = readRecordField(task, "payload")
+    const command = readStringField(payload, "command") ?? ""
     const target = command.length > 0 ? `: ${command}` : ""
-    this.out.write(`${dim("→")} ${cyan(`task ${task?.id ?? "?"} started${target}`)}\n`)
+    this.out.write(
+      `${dim("→")} ${cyan(`task ${readStringField(task, "id") ?? "?"} started${target}`)}\n`,
+    )
   }
 
-  private renderTaskTerminal(event: Event): void {
+  private renderTaskTerminal(event: Event) {
     const taskId = typeof event.taskId === "string" ? event.taskId : "?"
     const summary = readSummary(event)
     const phase = event.type.replace("task.", "")
@@ -146,17 +172,17 @@ export class LiveRenderer {
     )
   }
 
-  private renderModelError(error: string): void {
+  private renderModelError(error: string) {
     this.out.write(`${red(`✗ model failed: ${error}`)}\n`)
   }
 
-  private renderTerminalReason(reason: string | undefined): void {
+  private renderTerminalReason(reason: string | undefined) {
     if (reason === "cancelled") this.out.write(`${dim("cancelled")}\n`)
     if (reason === "max_steps") this.out.write(`${dim("stopped: max steps reached")}\n`)
     if (reason === "model_failed") this.out.write(`${dim("stopped: model failed")}\n`)
   }
 
-  private endAssistantLine(): void {
+  private endAssistantLine() {
     if (this.writingAssistant) {
       this.out.write("\n")
       this.writingAssistant = false

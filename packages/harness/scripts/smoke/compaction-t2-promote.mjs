@@ -11,6 +11,7 @@ import * as os from "node:os"
 import * as path from "node:path"
 import { z } from "zod"
 import { loadEvents, resolveArtifactPath, runInvocation } from "../../dist/index.js"
+import { formatValue } from "../format-value.mjs"
 
 function assert(cond, msg) {
   if (!cond) {
@@ -100,16 +101,19 @@ const compactionCompleted = events.find((e) => e.type === "compaction.completed"
 assert(compactionCompleted !== undefined, "expected a compaction.completed event")
 assert(
   compactionCompleted.watermarksCrossed.includes("promote_inline_results"),
-  `expected promote_inline_results watermark, got ${JSON.stringify(compactionCompleted.watermarksCrossed)}`,
+  `expected promote_inline_results watermark, got ${formatValue(compactionCompleted.watermarksCrossed)}`,
 )
 assert(
   compactionCompleted.promotedInlineCount === 1,
-  `expected 1 promoted, got ${compactionCompleted.promotedInlineCount}`,
+  `expected 1 promoted, got ${formatValue(compactionCompleted.promotedInlineCount)}`,
 )
 
 const promoted = events.find((e) => e.type === "compaction.tool_promoted")
 assert(promoted !== undefined, "expected a compaction.tool_promoted event")
-assert(promoted.sourceCallId === "call_1", `unexpected sourceCallId: ${promoted.sourceCallId}`)
+assert(
+  promoted.sourceCallId === "call_1",
+  `unexpected sourceCallId: ${formatValue(promoted.sourceCallId)}`,
+)
 assert(typeof promoted.artifactId === "string", "promoted should have an artifactId")
 
 const artifactCreated = events.find(
@@ -118,11 +122,11 @@ const artifactCreated = events.find(
 assert(artifactCreated !== undefined, "expected an artifact.created event for call_1")
 assert(
   artifactCreated.byteCount === bigResult.length,
-  `byteCount mismatch: ${artifactCreated.byteCount} vs ${bigResult.length}`,
+  `byteCount mismatch: ${formatValue(artifactCreated.byteCount)} vs ${bigResult.length}`,
 )
 
 // On-disk artifact matches the original byte-for-byte.
-const artifactPath = resolveArtifactPath(sessionId, String(artifactCreated.id))
+const artifactPath = resolveArtifactPath(sessionId, artifactCreated.id)
 const onDisk = await fs.readFile(artifactPath, "utf8")
 assert(onDisk === bigResult, "promoted artifact content should equal the original tool result")
 
@@ -142,10 +146,7 @@ assert(
   toolMessage.content.startsWith("[artifact:"),
   `tool message should start with [artifact: stub; got "${toolMessage.content.slice(0, 60)}"`,
 )
-assert(
-  toolMessage.content.includes(String(artifactCreated.id)),
-  "stub should reference the artifact id",
-)
+assert(toolMessage.content.includes(artifactCreated.id), "stub should reference the artifact id")
 
 // Event log invariant: original tool.completed retains its full result.
 const originalToolCompleted = events.find(

@@ -13,6 +13,7 @@ import {
   loadEvents,
   loadUserSettings,
   type Provider,
+  readStringField,
   registerSubagentPreset,
   resolveLeharnessHome,
   runInvocation,
@@ -206,7 +207,7 @@ function resolveMaxSteps(flagValue: number | undefined): number | undefined {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined
 }
 
-function registerSampleSubagents(services: ReturnType<typeof getOrCreateTaskServices>): void {
+function registerSampleSubagents(services: ReturnType<typeof getOrCreateTaskServices>) {
   registerSubagentPreset(services, {
     name: "explore",
     description: "Read-only codebase exploration. Find references, sketch the layout, summarize.",
@@ -258,18 +259,14 @@ async function runOnce(
   prompt: string,
   deps: HarnessDeps,
   renderer: LiveRenderer,
-): Promise<void> {
+) {
   await runInvocation(sessionId, prompt, deps, {
     onText: (delta) => renderer.onText(delta),
     onEvent: (event) => renderer.onEvent(event),
   })
 }
 
-async function runMinimalInteractive(
-  sessionId: string,
-  deps: HarnessDeps,
-  resuming: boolean,
-): Promise<void> {
+async function runMinimalInteractive(sessionId: string, deps: HarnessDeps, resuming: boolean) {
   process.stdout.write(`lh minimal (session: ${sessionId})\n`)
   process.stdout.write(`Provider: ${deps.provider.name}, Model: ${deps.model}\n`)
   process.stdout.write(`/help for commands. Ctrl-C or /exit to quit.\n\n`)
@@ -324,7 +321,7 @@ function cliHelp(): string {
 `
 }
 
-function printUsage(): void {
+function printUsage() {
   process.stdout.write(
     `lh ${cliVersion} - launcher for leharness apps
 
@@ -363,7 +360,7 @@ In the TUI, /help lists slash commands (/model, /effort, /mcp, ...).
   )
 }
 
-function loadDotEnvFiles(): void {
+function loadDotEnvFiles() {
   for (const filePath of dotEnvPaths()) {
     loadDotEnv(filePath)
   }
@@ -387,7 +384,7 @@ function dedupePaths(paths: string[]): string[] {
   return out
 }
 
-function loadDotEnv(filePath: string): void {
+function loadDotEnv(filePath: string) {
   let raw: string
   try {
     raw = readFileSync(filePath, "utf8")
@@ -425,8 +422,9 @@ function readCliVersion(): string {
   try {
     const packageJson = JSON.parse(
       readFileSync(new URL("../package.json", import.meta.url), "utf8"),
-    ) as { version?: unknown }
-    if (typeof packageJson.version === "string") return packageJson.version
+    )
+    const version = readStringField(packageJson, "version")
+    if (version !== undefined) return version
   } catch {
     // Keep --help available even when running from an unusual build layout.
   }

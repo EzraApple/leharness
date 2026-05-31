@@ -1,4 +1,4 @@
-import type { TaskKind, ToolCall } from "@leharness/harness"
+import { readStringField, type TaskKind, type ToolCall } from "@leharness/harness"
 
 interface ToolDisplay {
   pending: string
@@ -95,18 +95,11 @@ const SUBAGENT_DISPLAY: ToolDisplay = {
   completed: "ran subagent",
   failed: "subagent failed",
   target: (payload) => {
-    if (typeof payload !== "object" || payload === null) return undefined
-    const record = payload as { presetName?: unknown; prompt?: unknown }
-    const presetName = typeof record.presetName === "string" ? record.presetName : undefined
-    const prompt = typeof record.prompt === "string" ? record.prompt : undefined
+    const presetName = readStringField(payload, "presetName")
+    const prompt = readStringField(payload, "prompt")
     if (presetName !== undefined) return `${presetName}: ${truncate(prompt ?? "", 60)}`
     return truncate(prompt ?? "subagent", 80)
   },
-}
-
-const TASK_KIND_DISPLAYS: Record<TaskKind, ToolDisplay> = {
-  shell: TOOL_DISPLAYS.bash as ToolDisplay,
-  delegated: SUBAGENT_DISPLAY,
 }
 
 function displayForToolName(name: string): ToolDisplay | undefined {
@@ -114,7 +107,8 @@ function displayForToolName(name: string): ToolDisplay | undefined {
 }
 
 function displayForTaskKind(kind: TaskKind): ToolDisplay | undefined {
-  return TASK_KIND_DISPLAYS[kind]
+  if (kind === "shell") return TOOL_DISPLAYS.bash
+  return SUBAGENT_DISPLAY
 }
 
 export function pendingSnapshotForCall(call: ToolCall): ToolDisplaySnapshot {
@@ -218,9 +212,7 @@ function argsPreview(args: unknown): string {
 }
 
 function readField(args: unknown, key: string): string | undefined {
-  if (typeof args !== "object" || args === null) return undefined
-  const value = (args as Record<string, unknown>)[key]
-  return typeof value === "string" ? value : undefined
+  return readStringField(args, key)
 }
 
 function truncate(value: string, max: number): string {

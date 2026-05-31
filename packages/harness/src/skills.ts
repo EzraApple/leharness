@@ -13,6 +13,7 @@ import * as fs from "node:fs/promises"
 import * as path from "node:path"
 import { z } from "zod"
 import type { Event } from "./events.js"
+import { readErrorCode } from "./readers.js"
 import type { Tool, ToolContext, ToolExecuteResult } from "./tools.js"
 
 export type SkillSource =
@@ -34,7 +35,7 @@ interface BuiltinSkill {
 
 const builtinSkills = new Map<string, BuiltinSkill>()
 
-export function registerBuiltinSkill(skill: BuiltinSkill): void {
+export function registerBuiltinSkill(skill: BuiltinSkill) {
   builtinSkills.set(skill.name, skill)
 }
 
@@ -89,7 +90,7 @@ export async function discoverSkills(root = process.cwd()): Promise<Skill[]> {
     try {
       entries = await fs.readdir(baseDir, { withFileTypes: true })
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === "ENOENT") continue
+      if (readErrorCode(err) === "ENOENT") continue
       throw err
     }
 
@@ -228,7 +229,7 @@ async function readSkill(
     raw = await fs.readFile(skillPath, "utf8")
     stat = await fs.stat(skillPath)
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return undefined
+    if (readErrorCode(err) === "ENOENT") return undefined
     throw err
   }
 

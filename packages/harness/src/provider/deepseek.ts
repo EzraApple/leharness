@@ -35,7 +35,7 @@ export class DeepSeekProvider extends OpenAICompatProvider {
     })
   }
 
-  protected override customizeBody(req: ProviderRequest, body: Record<string, unknown>): void {
+  protected override customizeBody(req: ProviderRequest, body: Record<string, unknown>) {
     body.thinking = deepSeekThinking(req.reasoningEffort)
   }
 }

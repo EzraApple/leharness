@@ -23,6 +23,8 @@ import {
   type Provider,
   type ProviderRequest,
   type ProviderResponse,
+  readStringField,
+  readToolCall,
   resolveArtifactPath,
   runInvocation,
 } from "@leharness/harness"
@@ -139,10 +141,10 @@ const events = await loadEvents(sessionId)
 
 // Plan 006 auto-artifact fired on the bash result (>8KB).
 const bashToolCompleted = events.find(
-  (e) => e.type === "tool.completed" && (e.call as { name?: string } | undefined)?.name === "bash",
+  (event) => event.type === "tool.completed" && readToolCall(event.call)?.name === "bash",
 )
 assert.ok(bashToolCompleted, "expected tool.completed for bash")
-const bashArtifactId = bashToolCompleted?.artifactId as string | undefined
+const bashArtifactId = readStringField(bashToolCompleted, "artifactId")
 assert.equal(
   typeof bashArtifactId,
   "string",
@@ -150,7 +152,7 @@ assert.equal(
 )
 
 // The bash artifact still exists on disk and contains > 8KB of output.
-const bashArtifactPath = resolveArtifactPath(sessionId, bashArtifactId as string)
+const bashArtifactPath = resolveArtifactPath(sessionId, bashArtifactId)
 const bashArtifactBytes = (await fs.stat(bashArtifactPath)).size
 assert.ok(
   bashArtifactBytes > 8 * 1024,
@@ -161,7 +163,7 @@ assert.ok(
 // rendered window), which is distinct from the bash tool artifact.
 const summary = events.find((e) => e.type === "compaction.summary")
 assert.ok(summary, "expected compaction.summary event")
-const summaryArtifactId = summary?.sourceArtifactId as string
+const summaryArtifactId = readStringField(summary, "sourceArtifactId")
 assert.equal(typeof summaryArtifactId, "string")
 assert.notEqual(
   summaryArtifactId,

@@ -8,6 +8,7 @@ import * as fs from "node:fs/promises"
 import * as os from "node:os"
 import * as path from "node:path"
 import { loadEvents, runInvocation } from "../../dist/index.js"
+import { formatValue } from "../format-value.mjs"
 
 function assert(cond, msg) {
   if (!cond) {
@@ -87,11 +88,11 @@ assert(completed !== undefined, "expected compaction.completed event")
 assert(
   Array.isArray(completed.watermarksCrossed) &&
     completed.watermarksCrossed.includes("truncate_front"),
-  `expected truncate_front in watermarksCrossed, got ${JSON.stringify(completed.watermarksCrossed)}`,
+  `expected truncate_front in watermarksCrossed, got ${formatValue(completed.watermarksCrossed)}`,
 )
 assert(
   completed.truncatedFromFrontCount > 0,
-  `expected truncatedFromFrontCount > 0, got ${completed.truncatedFromFrontCount}`,
+  `expected truncatedFromFrontCount > 0, got ${formatValue(completed.truncatedFromFrontCount)}`,
 )
 
 // The fourth invocation's main request should be smaller than what it

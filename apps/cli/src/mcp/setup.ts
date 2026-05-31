@@ -65,7 +65,7 @@ export async function setupMcp(options: SetupMcpOptions): Promise<McpSetupResult
     log(`[mcp] ${ready}/${servers.length} server(s) ready\n`)
   }
 
-  const reload = async (): Promise<void> => {
+  const reload = async () => {
     const { servers: latest, warnings: reloadWarnings } = await loadMcpConfig(configPath)
     for (const w of reloadWarnings) log(`[mcp] config warning: ${w}\n`)
     await manager.syncServers(latest)

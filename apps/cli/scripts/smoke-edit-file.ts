@@ -2,7 +2,7 @@ import * as assert from "node:assert/strict"
 import * as fs from "node:fs/promises"
 import * as os from "node:os"
 import * as path from "node:path"
-import { runInvocation } from "@leharness/harness"
+import { readToolCall, runInvocation } from "@leharness/harness"
 import { createFileTool } from "../src/tools/create_file.js"
 import { editFileTool } from "../src/tools/edit_file.js"
 
@@ -24,7 +24,7 @@ try {
 
 console.log("smoke-edit-file: ok")
 
-async function smokeSuccessfulCreate(): Promise<void> {
+async function smokeSuccessfulCreate() {
   const result = await createFileTool.execute(
     { content: "hello\nworld\n", path: "created/note.txt" },
     { sessionId: "edit-smoke" },
@@ -35,7 +35,7 @@ async function smokeSuccessfulCreate(): Promise<void> {
   assert.equal(result.summary, "Added 3 lines")
 }
 
-async function smokeExistingCreateFailure(): Promise<void> {
+async function smokeExistingCreateFailure() {
   await fs.writeFile("exists.txt", "already here\n", "utf8")
   const result = await createFileTool.execute(
     { content: "new\n", path: "exists.txt" },
@@ -47,7 +47,7 @@ async function smokeExistingCreateFailure(): Promise<void> {
   assert.equal(await fs.readFile("exists.txt", "utf8"), "already here\n")
 }
 
-async function smokeSuccessfulEdit(): Promise<void> {
+async function smokeSuccessfulEdit() {
   await fs.writeFile("one.txt", "alpha\nold\nomega\n", "utf8")
   const result = await editFileTool.execute(
     { new_string: "new", old_string: "old", path: "one.txt" },
@@ -59,7 +59,7 @@ async function smokeSuccessfulEdit(): Promise<void> {
   assert.match(result.summary ?? "", /Changed \+1 -1 lines/)
 }
 
-async function smokeNoMatchFailure(): Promise<void> {
+async function smokeNoMatchFailure() {
   await fs.writeFile("missing.txt", "alpha\n", "utf8")
   const result = await editFileTool.execute(
     { new_string: "new", old_string: "old", path: "missing.txt" },
@@ -70,7 +70,7 @@ async function smokeNoMatchFailure(): Promise<void> {
   assert.match(result.message, /matched 0 times/)
 }
 
-async function smokeMultipleMatchFailure(): Promise<void> {
+async function smokeMultipleMatchFailure() {
   await fs.writeFile("duplicate.txt", "old\nold\n", "utf8")
   const result = await editFileTool.execute(
     { new_string: "new", old_string: "old", path: "duplicate.txt" },
@@ -81,7 +81,7 @@ async function smokeMultipleMatchFailure(): Promise<void> {
   assert.match(result.message, /matched 2 times/)
 }
 
-async function smokeInvocationDisplay(): Promise<void> {
+async function smokeInvocationDisplay() {
   let calls = 0
   const provider = {
     name: "fake",
@@ -126,7 +126,7 @@ async function smokeInvocationDisplay(): Promise<void> {
 
   assert.equal(await fs.readFile("invoke.txt", "utf8"), "after\n")
   const completed = events.filter((event) => event.type === "tool.completed")
-  assert.equal((completed[0]?.call as { name?: string } | undefined)?.name, "create_file")
-  assert.equal((completed[1]?.call as { name?: string } | undefined)?.name, "edit_file")
+  assert.equal(readToolCall(completed[0]?.call)?.name, "create_file")
+  assert.equal(readToolCall(completed[1]?.call)?.name, "edit_file")
   assert.match(String(completed[1]?.summary ?? ""), /Changed \+1 -1 lines/)
 }

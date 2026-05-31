@@ -10,7 +10,11 @@
     "build": "pnpm -r build",
     "typecheck": "pnpm -r build",
     "knip": "knip",
-    "lint": "biome check .",
+    "lint": "pnpm lint:biome && pnpm lint:ox && pnpm lint:agent-skills",
+    "lint:agent-skills": "node scripts/lint-agent-skills.mjs",
+    "lint:biome": "biome check .",
+    "lint:ox": "oxlint --config .oxlintrc.json --disable-nested-config --type-aware .",
+    "lint:ox:fast": "oxlint --config .oxlintrc.json --disable-nested-config .",
     "format": "biome format --write .",
     "package:prepare": "pnpm build && node scripts/prepare-npm-package.mjs",
     "package:pack": "pnpm package:prepare && npm pack dist/npm/leharness --pack-destination dist/npm",
@@ -24,6 +28,8 @@
     "@biomejs/biome": "^2.4.12",
     "@types/node": "^25.6.0",
     "knip": "^6.11.0",
+    "oxlint": "^1.67.0",
+    "oxlint-tsgolint": "^0.22.1",
     "tsx": "^4.21.0",
     "typescript": "^6.0.3"
   }

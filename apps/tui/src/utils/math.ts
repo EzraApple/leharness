@@ -1,5 +1,5 @@
 import { parseDocument } from "htmlparser2"
-import katex from "katex"
+import { renderToString } from "katex"
 
 interface DomNode {
   children?: DomNode[]
@@ -65,12 +65,12 @@ const SUPERSCRIPT: Record<string, string> = {
 
 export function renderMath(text: string, displayMode: boolean): string {
   try {
-    const html = katex.renderToString(text, {
+    const html = renderToString(text, {
       displayMode,
       output: "mathml",
       throwOnError: false,
     })
-    return normalizeMathText(renderNode(findMathNode(parseDocument(html) as DomNode) ?? undefined))
+    return normalizeMathText(renderNode(findMathNode(parseDocument(html)) ?? undefined))
   } catch {
     return text.trim()
   }

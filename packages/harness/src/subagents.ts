@@ -21,6 +21,7 @@ import type { Event, RecordEvent } from "./events.js"
 import { loadEvents } from "./events.js"
 import type { ReasoningEffort } from "./models.js"
 import type { Provider } from "./provider/index.js"
+import { readRecordField, readStringField } from "./readers.js"
 import { enableShellRuntime } from "./shell.js"
 import {
   getOrCreateTaskServices,
@@ -33,7 +34,13 @@ import {
   type TaskRegistry,
   type TaskSnapshot,
 } from "./tasks.js"
-import type { Tool, ToolContext, ToolExecuteResult } from "./tools.js"
+import {
+  readToolCall,
+  readToolCalls,
+  type Tool,
+  type ToolContext,
+  type ToolExecuteResult,
+} from "./tools.js"
 
 export interface SubagentPreset {
   name: string
@@ -71,26 +78,18 @@ interface SubagentTaskRecord {
 const SNAPSHOT_MAX_BYTES = 16 * 1024
 const SNAPSHOT_MAX_EVENTS = 40
 
-const PRESETS_KEY = Symbol.for("leharness.subagentPresets")
-
-interface ServicesWithPresets extends SessionTaskServices {
-  [PRESETS_KEY]?: Map<string, SubagentPreset>
-}
+const presetsByServices = new WeakMap<SessionTaskServices, Map<string, SubagentPreset>>()
 
 function presetMap(services: SessionTaskServices): Map<string, SubagentPreset> {
-  const bag = services as ServicesWithPresets
-  let map = bag[PRESETS_KEY]
+  let map = presetsByServices.get(services)
   if (map === undefined) {
     map = new Map()
-    bag[PRESETS_KEY] = map
+    presetsByServices.set(services, map)
   }
   return map
 }
 
-export function registerSubagentPreset(
-  services: SessionTaskServices,
-  preset: SubagentPreset,
-): void {
+export function registerSubagentPreset(services: SessionTaskServices, preset: SubagentPreset) {
   presetMap(services).set(preset.name, preset)
 }
 
@@ -129,7 +128,7 @@ export function createSubagentExecutor(deps: {
     }
   }
 
-  function postCompleted(record: SubagentTaskRecord, result: string, summary?: string): void {
+  function postCompleted(record: SubagentTaskRecord, result: string, summary?: string) {
     deps.registry.markTerminal(record.task.id, "completed")
     deps.queue.send({
       kind: "task.completed",
@@ -140,7 +139,7 @@ export function createSubagentExecutor(deps: {
     })
   }
 
-  function postFailed(record: SubagentTaskRecord, error: string, summary?: string): void {
+  function postFailed(record: SubagentTaskRecord, error: string, summary?: string) {
     deps.registry.markTerminal(record.task.id, "failed")
     deps.queue.send({
       kind: "task.failed",
@@ -151,7 +150,7 @@ export function createSubagentExecutor(deps: {
     })
   }
 
-  function postCancelled(record: SubagentTaskRecord, summary?: string): void {
+  function postCancelled(record: SubagentTaskRecord, summary?: string) {
     deps.registry.markTerminal(record.task.id, "cancelled")
     deps.queue.send({
       kind: "task.cancelled",
@@ -164,7 +163,7 @@ export function createSubagentExecutor(deps: {
     })
   }
 
-  async function runChild(record: SubagentTaskRecord): Promise<void> {
+  async function runChild(record: SubagentTaskRecord) {
     const preset =
       record.presetName === undefined ? undefined : presetMap(deps.services).get(record.presetName)
     const childDeps = buildChildDeps(preset)
@@ -212,7 +211,7 @@ export function createSubagentExecutor(deps: {
   return {
     kind: "delegated",
 
-    spawn(task: Task): void {
+    spawn(task: Task) {
       if (task.payload.kind !== "delegated") return
       const record: SubagentTaskRecord = {
         task,
@@ -233,7 +232,7 @@ export function createSubagentExecutor(deps: {
       })
     },
 
-    async cancel(taskId: string): Promise<void> {
+    async cancel(taskId: string) {
       const record = records.get(taskId)
       if (record === undefined) return
       record.abortController.abort()
@@ -258,7 +257,7 @@ export function enableSubagentRuntime(
   runInvocation: typeof import("./core/invocation.js").runInvocation,
 ): SubagentExecutor {
   const existing = services.executors.get("delegated")
-  if (existing !== undefined) return existing as SubagentExecutor
+  if (isSubagentExecutor(existing)) return existing
   const executor = createSubagentExecutor({
     queue: services.queue,
     registry: services.registry,
@@ -301,8 +300,8 @@ export function createSpawnSubagentTool(services: SessionTaskServices): Tool<Spa
       if (taskServices === undefined) {
         return { kind: "error", message: "spawn_subagent: task services unavailable" }
       }
-      const executor = taskServices.executors.get("delegated") as SubagentExecutor | undefined
-      if (executor === undefined) {
+      const executor = taskServices.executors.get("delegated")
+      if (!isSubagentExecutor(executor)) {
         return {
           kind: "error",
           message:
@@ -376,8 +375,14 @@ function buildSpawnDescription(presets: SubagentPreset[]): string {
   return `${head.join(" ")}\n\nAvailable subagent types:\n${catalog}`
 }
 
-function delay(ms: number): Promise<void> {
+function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)))
+}
+
+function isSubagentExecutor(executor: TaskExecutor | undefined): executor is SubagentExecutor {
+  return (
+    executor?.kind === "delegated" && "spawn" in executor && typeof executor.spawn === "function"
+  )
 }
 
 function formatChildTranscript(events: Event[]): string {
@@ -402,31 +407,28 @@ function formatEventLine(event: Event): string {
       return `[user] ${truncate(String(event.text ?? ""), 240)}`
     case "model.completed": {
       const text = truncate(String(event.text ?? ""), 320)
-      const calls = (event.toolCalls as Array<{ name?: string }> | undefined) ?? []
-      const callNames = calls
-        .map((call) => call?.name)
-        .filter((name): name is string => typeof name === "string")
-        .join(", ")
+      const calls = readToolCalls(event.toolCalls)
+      const callNames = calls.map((call) => call.name).join(", ")
       const suffix = callNames.length > 0 ? ` [calls: ${callNames}]` : ""
       return `[assistant] ${text}${suffix}`
     }
     case "tool.started": {
-      const call = event.call as { name?: string; args?: unknown } | undefined
+      const call = readToolCall(event.call)
       return `  → ${call?.name ?? "tool"}(${preview(call?.args)})`
     }
     case "tool.completed": {
-      const call = event.call as { name?: string } | undefined
+      const call = readToolCall(event.call)
       const summary = typeof event.summary === "string" ? event.summary : undefined
       return `  ← ${call?.name ?? "tool"} ok${summary ? ` · ${summary}` : ""}`
     }
     case "tool.failed": {
-      const call = event.call as { name?: string } | undefined
+      const call = readToolCall(event.call)
       const summary = typeof event.summary === "string" ? event.summary : undefined
       return `  ✗ ${call?.name ?? "tool"} failed${summary ? ` · ${summary}` : ""}`
     }
     case "task.started": {
-      const task = event.task as { id?: string; kind?: string } | undefined
-      return `  ⇣ task.started ${task?.kind ?? ""} ${task?.id ?? ""}`
+      const task = readRecordField(event, "task")
+      return `  ⇣ task.started ${readStringField(task, "kind") ?? ""} ${readStringField(task, "id") ?? ""}`
     }
     case "task.completed":
       return `  ✓ task.completed ${String(event.taskId ?? "")}`

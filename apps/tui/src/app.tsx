@@ -234,20 +234,20 @@ export function TuiApp({
     return true
   }
 
-  function clearComposer(): void {
+  function clearComposer() {
     setInput("")
     setSlashDismissedInput(undefined)
     setHistoryIndex(undefined)
   }
 
-  function closePicker(): void {
+  function closePicker() {
     setPicker(undefined)
     setInput("")
     setInputVersion((version) => version + 1)
     setStatus("idle")
   }
 
-  function openPicker(kind: PickerKind, query: string): void {
+  function openPicker(kind: PickerKind, query: string) {
     if (kind === "effort" && !currentModelSupportsReasoning) {
       setTranscript((prev) =>
         appendCell(prev, {
@@ -270,7 +270,7 @@ export function TuiApp({
     setStatus(`select ${kind}`)
   }
 
-  function rememberSubmittedMessage(text: string): void {
+  function rememberSubmittedMessage(text: string) {
     setHistory((prev) => [...prev, text])
     setHistoryIndex(undefined)
   }
@@ -465,7 +465,7 @@ export function TuiApp({
     )
   }
 
-  function persistRuntimeSettings(runtime: RuntimeSettings): void {
+  function persistRuntimeSettings(runtime: RuntimeSettings) {
     void updateUserSettings({ runtime }).catch((err: unknown) => {
       setTranscript((prev) =>
         appendCell(prev, {
@@ -643,7 +643,9 @@ export function TuiApp({
         running={invocation.running}
         setInput={changeInput}
         slashNames={slashNames}
-        submit={submit}
+        submit={(value) => {
+          void submit(value)
+        }}
       />
       {helpVisible ? (
         <HelpPanel supportsReasoning={currentModelSupportsReasoning} width={columns} />

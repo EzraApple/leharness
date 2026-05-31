@@ -11,7 +11,6 @@
 
 import { spawn } from "node:child_process"
 import { createServer, type Server } from "node:http"
-import type { AddressInfo } from "node:net"
 import process from "node:process"
 import type { LoopbackAuthorization } from "@leharness/mcp"
 
@@ -84,8 +83,8 @@ function listen(port: number): Promise<{ server: Server; port: number }> {
     const server = createServer()
     server.once("error", reject)
     server.listen(port, "127.0.0.1", () => {
-      const address = server.address() as AddressInfo | null
-      if (address === null) {
+      const address = server.address()
+      if (typeof address !== "object" || address === null) {
         server.close()
         reject(new Error("could not determine OAuth loopback port"))
         return
@@ -96,7 +95,7 @@ function listen(port: number): Promise<{ server: Server; port: number }> {
   })
 }
 
-function openBrowser(url: string): void {
+function openBrowser(url: string) {
   const platform = process.platform
   const cmd = platform === "darwin" ? "open" : platform === "win32" ? "start" : "xdg-open"
   const args = platform === "win32" ? ["", url] : [url]
