@@ -7,7 +7,7 @@ import {
   reduceText,
   setLatestToolDetailExpanded,
 } from "../src/state/transcript.js"
-import { glyph } from "../src/theme.js"
+import { color, glyph } from "../src/theme.js"
 
 let state = initialTranscript()
 state = reduceText(state, "final")
@@ -160,6 +160,65 @@ assert.equal(expanded.state.cells.find((cell) => cell.title === "read_file_batch
 expanded = setLatestToolDetailExpanded(state, true, "read")
 assert.equal(expanded.changed, true)
 assert.equal(expanded.state.cells.find((cell) => cell.title === "read_file_batch")?.expanded, true)
+
+state = initialTranscript()
+state = reduceEvent(state, {
+  callId: "call_subagent",
+  id: "event-subagent-started",
+  summary: "spawned explorer · task_01ABCDEFGHJKLMNPQRSTUV",
+  task: {
+    id: "task_01ABCDEFGHJKLMNPQRSTUV",
+    kind: "delegated",
+    payload: {
+      childSessionId: "child_01ABCDEFGHJKLMNPQRSTUV",
+      kind: "delegated",
+      presetName: "explorer",
+      prompt: "Map the artifact recovery path",
+    },
+    sessionId: "session",
+    startedAt: "2026-05-07T00:00:00.000Z",
+    state: "running",
+  },
+  taskId: "task_01ABCDEFGHJKLMNPQRSTUV",
+  ts: "2026-05-07T00:00:00.000Z",
+  type: "task.started",
+  v: 1,
+})
+const runningSubagentRows = transcriptTestInternals.buildRows(state.cells, {
+  running: false,
+  width: 80,
+})
+assert.equal(
+  runningSubagentRows.some(
+    (row) => row.color === color.userChevron && row.text.startsWith("┌─ subagent"),
+  ),
+  true,
+)
+state = reduceEvent(state, {
+  id: "event-subagent-completed",
+  result: "Mapped the path.",
+  summary: "Mapped the path.",
+  taskId: "task_01ABCDEFGHJKLMNPQRSTUV",
+  ts: "2026-05-07T00:00:01.000Z",
+  type: "task.completed",
+  v: 1,
+})
+const completedSubagentRows = transcriptTestInternals.buildRows(state.cells, {
+  running: false,
+  width: 80,
+})
+assert.equal(
+  completedSubagentRows.some((row) => row.text.startsWith("┌─ subagent")),
+  false,
+)
+assert.equal(
+  completedSubagentRows.some((row) => row.text.includes("ran subagent")),
+  true,
+)
+assert.equal(
+  completedSubagentRows.some((row) => row.text.includes("background")),
+  false,
+)
 
 const poemFiles = [
   "poems/after-rain.md",

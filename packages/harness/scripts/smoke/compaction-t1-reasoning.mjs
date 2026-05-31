@@ -64,7 +64,6 @@ const baseDeps = {
   tools: [],
   model: "fake-model",
   systemPrompt: "smoke t1",
-  tasks: false,
   // Override preserveRecentTurns=1 so the first turn is eligible for
   // compaction by the second turn's pre-flight pass; default of 2 would
   // require a third turn to have anything to compact.

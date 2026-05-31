@@ -17,6 +17,9 @@ import {
   registerSubagentPreset,
   resolveLeharnessHome,
   runInvocation,
+  skillsCapability,
+  subagentsCapability,
+  taskManagementCapability,
   type UserSettings,
 } from "@leharness/harness"
 import { runTui } from "@leharness/tui"
@@ -133,6 +136,10 @@ export async function main(argv: string[]): Promise<number> {
   // MCP tools straight in — they're static for the run.
   const sessionTools = isTui ? builtinTools : [...builtinTools, ...mcp.tools]
 
+  const sessionId = args.sessionId ?? ulid()
+  const services = getOrCreateTaskServices(sessionId)
+  enableShellRuntime(services)
+
   const deps: HarnessDeps = {
     systemPrompt: CLI_SYSTEM_PROMPT,
     provider,
@@ -142,9 +149,6 @@ export async function main(argv: string[]): Promise<number> {
     maxSteps: resolveMaxSteps(args.maxSteps),
     compaction: resolveCompactionConfig(),
   }
-  const sessionId = args.sessionId ?? ulid()
-  const services = getOrCreateTaskServices(sessionId)
-  enableShellRuntime(services)
   enableSubagentRuntime(
     services,
     {
@@ -157,6 +161,11 @@ export async function main(argv: string[]): Promise<number> {
     runInvocation,
   )
   registerSampleSubagents(services)
+  deps.capabilities = [
+    taskManagementCapability(),
+    subagentsCapability(services),
+    skillsCapability(),
+  ]
 
   if (args.mode === "one_shot") {
     if (args.prompt === undefined) {

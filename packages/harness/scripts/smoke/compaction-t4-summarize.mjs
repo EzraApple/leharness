@@ -57,24 +57,23 @@ responses.push({
   usage: { promptTokens: 200, completionTokens: 10 },
 })
 
-// Summary text the scripted provider returns when the summarizer call
-// fires. Identified by `req.tools === undefined` (summarizer doesn't
-// include tools).
+// Summary text the scripted provider returns when the summarizer call fires.
+// Main calls may have no tools now, so identify summarizer calls by the
+// dedicated summarizer system prompt.
 const SUMMARY_TEXT =
   "- **Goal:** stand in for the user's real goal in the test\n" +
   "- **Touched:** smoke harness, pressure gradient\n" +
   "- **Decisions:** trust the test\n" +
   "- **Next:** assert the right events land"
 
-const seenRequests = []
+const seenMainRequests = []
 let mainCallIndex = 0
 let summarizerCallCount = 0
 
 const provider = {
   name: "compaction-t4-fake",
   async call(req) {
-    seenRequests.push(req)
-    if (req.tools === undefined) {
+    if (isSummarizerRequest(req)) {
       summarizerCallCount++
       return {
         text: SUMMARY_TEXT,
@@ -83,10 +82,15 @@ const provider = {
         usage: { promptTokens: 400, completionTokens: 120 },
       }
     }
+    seenMainRequests.push(req)
     const response = responses[mainCallIndex++]
     if (response === undefined) throw new Error("t4-fake: out of main responses")
     return response
   },
+}
+
+function isSummarizerRequest(req) {
+  return req.system?.startsWith("You produce concise handoff briefs") === true
 }
 
 const baseDeps = {
@@ -94,7 +98,6 @@ const baseDeps = {
   tools: [],
   model: "fake-main",
   systemPrompt: "smoke t4",
-  tasks: false,
   // 5 turns total, preserve the last turn so the M=4 picker can take
   // turns 0..3 as the window.
   compaction: { maxInputTokens: budget, preserveRecentTurns: 1 },
@@ -160,7 +163,7 @@ assert(
 
 // The 5th main provider request (the one after compaction) should have
 // the synthetic summary message in place of the original 4 turns.
-const fifthMainRequest = seenRequests.filter((r) => r.tools !== undefined).slice(-1)[0]
+const fifthMainRequest = seenMainRequests.at(-1)
 assert(fifthMainRequest !== undefined, "expected fifth main request")
 const userMessages = fifthMainRequest.messages.filter((m) => m.role === "user")
 const summaryMsg = userMessages.find((m) =>

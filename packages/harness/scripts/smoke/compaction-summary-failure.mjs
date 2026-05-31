@@ -54,7 +54,7 @@ responses.push({
 const provider = {
   name: "fail-fake",
   async call(req) {
-    if (req.tools === undefined) {
+    if (isSummarizerRequest(req)) {
       summarizerCalls++
       // First summarizer call: throw. Second: succeed (next-step retry).
       if (summarizerCalls === 1) {
@@ -73,12 +73,15 @@ const provider = {
   },
 }
 
+function isSummarizerRequest(req) {
+  return req.system?.startsWith("You produce concise handoff briefs") === true
+}
+
 const baseDeps = {
   provider,
   tools: [],
   model: "fake-main",
   systemPrompt: "smoke fail",
-  tasks: false,
   compaction: { maxInputTokens: budget, preserveRecentTurns: 1 },
 }
 

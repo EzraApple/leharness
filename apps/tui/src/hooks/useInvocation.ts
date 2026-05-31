@@ -48,8 +48,7 @@ export function useInvocation(opts: {
   runPrompt: RunPrompt
   activeDeps: HarnessDeps
   sessionId: string
-  tasksEnabled: boolean
-  // Expand/validate typed text before it runs (skills + unknown-command guard).
+  // Expand typed text before it runs.
   prepareText: (text: string) => string | undefined
   setTranscript: Dispatch<SetStateAction<TranscriptState>>
   setStatus: (status: string) => void
@@ -57,7 +56,6 @@ export function useInvocation(opts: {
   onSettled: () => void
 }): Invocation {
   const { activeDeps, prepareText, runPrompt, sessionId, setStatus, setTranscript } = opts
-  const tasksEnabled = opts.tasksEnabled
   const onSettled = opts.onSettled
 
   const [running, setRunning] = useState(false)
@@ -77,7 +75,6 @@ export function useInvocation(opts: {
   // Background tasks completing while idle schedule a fresh auto-react so the
   // agent can observe their results without the user prompting again.
   useEffect(() => {
-    if (!tasksEnabled) return
     const scheduleAutoInvocation = () => {
       if (autoInvocationScheduledRef.current) return
       autoInvocationScheduledRef.current = true
@@ -89,7 +86,7 @@ export function useInvocation(opts: {
       }, 50)
     }
     return subscribeToBackgroundUpdates(sessionId, scheduleAutoInvocation)
-  }, [tasksEnabled, sessionId])
+  }, [sessionId])
 
   function replaceQueue(messages: QueuedMessage[]) {
     queuedMessagesRef.current = messages
@@ -185,7 +182,7 @@ export function useInvocation(opts: {
       // If background messages arrived during the loop tail without tripping
       // the queue listener (or arrived just after this finally started), drain
       // them in a fresh auto-invocation.
-      if (tasksEnabled && hasPendingBackgroundUpdates(sessionId) && !runningRef.current) {
+      if (hasPendingBackgroundUpdates(sessionId) && !runningRef.current) {
         setTimeout(() => {
           if (!runningRef.current && hasPendingBackgroundUpdates(sessionId)) {
             void start(undefined)

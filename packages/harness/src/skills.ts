@@ -12,6 +12,7 @@ import type { Dirent } from "node:fs"
 import * as fs from "node:fs/promises"
 import * as path from "node:path"
 import { z } from "zod"
+import type { Capability, CapabilityContext } from "./core/capability.js"
 import type { Event } from "./events.js"
 import { readErrorCode } from "./readers.js"
 import type { Tool, ToolContext, ToolExecuteResult } from "./tools.js"
@@ -203,7 +204,7 @@ export function skillOptionsEnabled(options: SkillOptions | false | undefined): 
   return options !== false && options?.enabled !== false
 }
 
-export function recentLoadedSkillNames(events: Event[]): string[] {
+export function recentLoadedSkillNames(events: ReadonlyArray<Event>): string[] {
   const names: string[] = []
   for (const event of events) {
     if (event.type !== "skill.loaded" || typeof event.name !== "string") continue
@@ -215,6 +216,45 @@ export function recentLoadedSkillNames(events: Event[]): string[] {
 export function withSkillCatalog(system: string, catalog: string): string {
   if (catalog.length === 0) return system
   return `${system}\n\n${catalog}`
+}
+
+export function skillsCapability(options: SkillOptions | false | undefined = {}): Capability {
+  if (!skillOptionsEnabled(options)) return {}
+
+  const skillConfig = options === false ? undefined : options
+  const discoveries = new WeakMap<CapabilityContext, Promise<Skill[]>>()
+
+  function discover(ctx: CapabilityContext): Promise<Skill[]> {
+    const existing = discoveries.get(ctx)
+    if (existing !== undefined) return existing
+    const next = discoverSkills(skillConfig?.root)
+    discoveries.set(ctx, next)
+    return next
+  }
+
+  return {
+    async tools(ctx) {
+      const discoveredSkills = await discover(ctx)
+      if (discoveredSkills.length === 0) return []
+      return [
+        createLoadSkillTool({
+          root: skillConfig?.root,
+          maxSkillBytes: skillConfig?.maxSkillBytes,
+        }),
+      ]
+    },
+    async augmentSystemPrompt(base, ctx) {
+      const discoveredSkills = await discover(ctx)
+      if (discoveredSkills.length === 0) return base
+      const catalog = renderSkillCatalog(discoveredSkills, {
+        budgetChars: skillConfig?.catalogBudgetChars,
+        includePaths: skillConfig?.includePaths,
+        queryText: ctx.userText ?? "",
+        recentSkillNames: recentLoadedSkillNames(ctx.events),
+      })
+      return withSkillCatalog(base, catalog)
+    },
+  }
 }
 
 async function readSkill(

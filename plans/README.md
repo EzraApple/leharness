@@ -36,8 +36,8 @@ Index:
   in `.leharness/sessions/<id>/artifacts/`. The harness auto-artifacts any
   tool result (or background task completion) over 8KB, writes the content
   to disk, and replaces the in-context value with a short stub + the
-  `artifact_id`. A built-in `read_artifact` tool fetches full content or a
-  paginated slice. Foundation for the next plan (smart compaction). The
+  artifact file path. Artifact recovery now uses bounded `read_file` reads
+  against that path. Foundation for the next plan (smart compaction). The
   same PR also renames `packages/harness/src/harness/` →
   `packages/harness/src/core/`.
 - `007-smart-compaction.md` — plan for a pressure-gradient compaction
@@ -66,3 +66,13 @@ Index:
   crypto bits. v1 = tools only, all three auth tiers (stdio / HTTP
   bearer / OAuth+PKCE), config in `.leharness/mcp.json` matching the
   Claude Code / Cursor / Cline format.
+- `010-tool-agnostic-kernel.md` — make the kernel auto-inject no
+  model-facing capability tools. The async surface is already generic
+  (`Tool.execute` returns inline-or-handle; `TaskExecutor` /
+  `SessionTaskServices`); the coupling is package boundaries,
+  `prepare-prompt` hard-importing built-ins, and `read_file` being too
+  blunt for large artifact files. Invert product features via a
+  `Capability` hook, keep artifact storage core, retire `read_artifact`
+  after bounded line-based `read_file` lands, then extract
+  `@leharness/exec`, `/subagents`, and `/skills` as packages layered over
+  the kernel.

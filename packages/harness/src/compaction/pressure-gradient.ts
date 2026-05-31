@@ -23,7 +23,7 @@
 // keyed to source event IDs so re-running compaction on the same history
 // reuses prior work and produces identical projections.
 
-import { formatArtifactStub, writeArtifact } from "../artifacts.js"
+import { formatArtifactStub, resolveArtifactPath, writeArtifact } from "../artifacts.js"
 import type { Event } from "../events.js"
 import { eventToMessage, type PromptInput } from "../prompt.js"
 import type { HarnessMessage } from "../provider/index.js"
@@ -141,7 +141,7 @@ export async function pressureGradient(input: PromptInput): Promise<PromptInput>
     input.sessionId !== undefined &&
     input.recordEvent !== undefined
   ) {
-    const priorPromotions = collectPriorPromotions(input.events)
+    const priorPromotions = collectPriorPromotions(input.events, input.sessionId)
     for (const event of input.events) {
       if (!eligibleEventIds.has(event.id)) continue
       if (ctx.coveredEventIds.has(event.id)) continue
@@ -193,7 +193,7 @@ export async function pressureGradient(input: PromptInput): Promise<PromptInput>
       const existingArtifactId = typeof event.artifactId === "string" ? event.artifactId : undefined
       const tombstone =
         existingArtifactId !== undefined
-          ? `[tool result dropped during compaction — read_artifact ${existingArtifactId} for full content]`
+          ? `[tool result dropped during compaction — use read_file with path="${formatArtifactPath(input.sessionId, existingArtifactId)}", offset=1, limit=400 for full content]`
           : "[tool result dropped during compaction]"
       ctx.toolReplacementByCallId.set(callId, tombstone)
       droppedToolBodyCount++
@@ -434,7 +434,10 @@ interface PriorPromotion {
   stub: string
 }
 
-function collectPriorPromotions(events: Event[]): Map<string, PriorPromotion> {
+function collectPriorPromotions(
+  events: Event[],
+  sessionId: string | undefined,
+): Map<string, PriorPromotion> {
   const promotions = new Map<string, PriorPromotion>()
   for (const event of events) {
     if (event.type !== "compaction.tool_promoted") continue
@@ -442,13 +445,18 @@ function collectPriorPromotions(events: Event[]): Map<string, PriorPromotion> {
     const artifactId = typeof event.artifactId === "string" ? event.artifactId : undefined
     if (sourceCallId === undefined || artifactId === undefined) continue
     // Build a stub from minimal info — we don't have byteCount on the
-    // promotion event, but the model just needs the id to fetch.
+    // promotion event, but the model just needs the file path to inspect.
+    const filePath = formatArtifactPath(sessionId, artifactId)
     promotions.set(sourceCallId, {
       artifactId,
-      stub: `[artifact: ${artifactId} · promoted during compaction · read_artifact for full content]`,
+      stub: `[artifact: ${filePath} · promoted during compaction · use read_file with path="${filePath}", offset=1, limit=400 for full content]`,
     })
   }
   return promotions
+}
+
+function formatArtifactPath(sessionId: string | undefined, artifactId: string): string {
+  return sessionId === undefined ? artifactId : resolveArtifactPath(sessionId, artifactId)
 }
 
 function countPreservedRecentMessages(

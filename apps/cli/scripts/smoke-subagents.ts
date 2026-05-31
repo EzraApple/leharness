@@ -27,6 +27,8 @@ import {
   readStringField,
   registerSubagentPreset,
   runInvocation,
+  subagentsCapability,
+  taskManagementCapability,
 } from "@leharness/harness"
 import { bashTool } from "../src/tools/bash.js"
 import { readFileTool } from "../src/tools/read_file.js"
@@ -75,12 +77,16 @@ function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-function parentDeps(provider: Provider): HarnessDeps {
+function parentDeps(
+  provider: Provider,
+  services: ReturnType<typeof getOrCreateTaskServices>,
+): HarnessDeps {
   return {
     provider,
     tools: [bashTool, readFileTool],
     model: "fake-parent",
     systemPrompt: "smoke subagent parent",
+    capabilities: [taskManagementCapability(), subagentsCapability(services)],
   }
 }
 
@@ -125,7 +131,7 @@ function parentDeps(provider: Provider): HarnessDeps {
   const events = await runInvocation(
     parentSessionId,
     "delegate to explore",
-    parentDeps(parentProvider),
+    parentDeps(parentProvider, services),
   )
   const started = findStartedTask(events)
   assert.ok(started, "expected task.started (delegated)")
@@ -138,7 +144,11 @@ function parentDeps(provider: Provider): HarnessDeps {
   const drainProvider = scriptedProvider("drain", [
     { text: "got it", toolCalls: [], stopReason: "stop" },
   ])
-  const drained = await runInvocation(parentSessionId, undefined, parentDeps(drainProvider))
+  const drained = await runInvocation(
+    parentSessionId,
+    undefined,
+    parentDeps(drainProvider, services),
+  )
   const completed = drained.find((event) => event.type === "task.completed")
   assert.ok(completed, "expected task.completed drained")
   assert.equal(String(completed?.result ?? ""), "found three places")
@@ -186,7 +196,11 @@ function parentDeps(provider: Provider): HarnessDeps {
     },
     { text: "ok", toolCalls: [], stopReason: "stop" },
   ])
-  const events = await runInvocation(parentSessionId, "spawn clone", parentDeps(parentProvider))
+  const events = await runInvocation(
+    parentSessionId,
+    "spawn clone",
+    parentDeps(parentProvider, services),
+  )
   const started = findStartedTask(events)
   assert.ok(started, "expected task.started (delegated) for clone")
   assert.equal(started.payload.presetName, undefined, "no preset name on clone spawn")
@@ -201,7 +215,11 @@ function parentDeps(provider: Provider): HarnessDeps {
   const drainProvider = scriptedProvider("drain", [
     { text: "noted", toolCalls: [], stopReason: "stop" },
   ])
-  const drained = await runInvocation(parentSessionId, undefined, parentDeps(drainProvider))
+  const drained = await runInvocation(
+    parentSessionId,
+    undefined,
+    parentDeps(drainProvider, services),
+  )
   const completed = drained.find((event) => event.type === "task.completed")
   assert.ok(completed, "expected task.completed for parent-clone child")
   assert.equal(String(completed?.result ?? ""), "cloned and done")
@@ -248,7 +266,11 @@ function parentDeps(provider: Provider): HarnessDeps {
     },
     { text: "moving on", toolCalls: [], stopReason: "stop" },
   ])
-  const firstEvents = await runInvocation(parentSessionId, "drain test", parentDeps(parentProvider))
+  const firstEvents = await runInvocation(
+    parentSessionId,
+    "drain test",
+    parentDeps(parentProvider, services),
+  )
   const started = findStartedTask(firstEvents)
   assert.ok(started, "expected task.started for drain test")
 
@@ -259,7 +281,11 @@ function parentDeps(provider: Provider): HarnessDeps {
   const drainProvider = scriptedProvider("drain", [
     { text: "got it", toolCalls: [], stopReason: "stop" },
   ])
-  const drainedEvents = await runInvocation(parentSessionId, undefined, parentDeps(drainProvider))
+  const drainedEvents = await runInvocation(
+    parentSessionId,
+    undefined,
+    parentDeps(drainProvider, services),
+  )
   assert.ok(
     drainedEvents.find((event) => event.type === "invocation.auto"),
     "expected invocation.auto",
@@ -344,13 +370,17 @@ function parentDeps(provider: Provider): HarnessDeps {
       return { text: "done", toolCalls: [], stopReason: "stop" }
     },
   }
-  await runInvocation(parentSessionId, "cancel test", parentDeps(parentProvider))
+  await runInvocation(parentSessionId, "cancel test", parentDeps(parentProvider, services))
   await delay(300)
 
   const drainProvider = scriptedProvider("drain", [
     { text: "noted", toolCalls: [], stopReason: "stop" },
   ])
-  const events = await runInvocation(parentSessionId, undefined, parentDeps(drainProvider))
+  const events = await runInvocation(
+    parentSessionId,
+    undefined,
+    parentDeps(drainProvider, services),
+  )
   const cancelledEvent = events.find((event) => event.type === "task.cancelled")
   assert.ok(cancelledEvent, "expected task.cancelled drained")
   assert.equal(readStringField(cancelledEvent, "reason"), "parent")
@@ -392,7 +422,11 @@ function parentDeps(provider: Provider): HarnessDeps {
     },
     { text: "noted the error", toolCalls: [], stopReason: "stop" },
   ])
-  const events = await runInvocation(parentSessionId, "bad preset", parentDeps(parentProvider))
+  const events = await runInvocation(
+    parentSessionId,
+    "bad preset",
+    parentDeps(parentProvider, services),
+  )
   const failed = events.find((event) => event.type === "tool.failed")
   assert.ok(failed, "expected tool.failed for unknown preset")
   assert.match(String(failed?.error ?? ""), /unknown preset/)

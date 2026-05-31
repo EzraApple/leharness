@@ -43,12 +43,13 @@ responses.push({
 })
 
 const seenRequests = []
+const seenMainRequests = []
 let mainCallIndex = 0
 const provider = {
   name: "compaction-t6-fake",
   async call(req) {
     seenRequests.push(req)
-    if (req.tools === undefined) {
+    if (req.system?.startsWith("You produce concise handoff briefs") === true) {
       // T6 test shouldn't hit summarizer (window too small to summarize anyway),
       // but if it does just return something benign.
       return {
@@ -58,6 +59,7 @@ const provider = {
         usage: { promptTokens: 50, completionTokens: 10 },
       }
     }
+    seenMainRequests.push(req)
     const response = responses[mainCallIndex++]
     if (response === undefined) throw new Error("t6-fake: out of responses")
     return response
@@ -69,7 +71,6 @@ const baseDeps = {
   tools: [],
   model: "fake-model",
   systemPrompt: "smoke t6",
-  tasks: false,
   compaction: {
     maxInputTokens: budgetTokens,
     maxInputChars: charCeiling,
@@ -98,7 +99,7 @@ assert(
 // The fourth invocation's main request should be smaller than what it
 // would have been without truncation. We don't have a precise number,
 // but assert at least that it's not enormous.
-const fourthRequest = seenRequests.filter((r) => r.tools !== undefined).slice(-1)[0]
+const fourthRequest = seenMainRequests.at(-1)
 assert(fourthRequest !== undefined, "expected the 4th main provider request")
 const charCount =
   JSON.stringify(fourthRequest.messages).length + (fourthRequest.system?.length ?? 0)

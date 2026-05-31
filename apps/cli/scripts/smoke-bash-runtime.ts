@@ -21,6 +21,7 @@ import {
   readStringField,
   readToolCall,
   runInvocation,
+  taskManagementCapability,
 } from "@leharness/harness"
 import { bashTool } from "../src/tools/bash.js"
 
@@ -64,6 +65,7 @@ function baseDeps(provider: Provider): HarnessDeps {
     tools: [bashTool],
     model: "fake-model",
     systemPrompt: "smoke bash runtime",
+    capabilities: [taskManagementCapability()],
   }
 }
 
