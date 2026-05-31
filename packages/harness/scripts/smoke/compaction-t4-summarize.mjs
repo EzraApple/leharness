@@ -13,6 +13,7 @@ import * as fs from "node:fs/promises"
 import * as os from "node:os"
 import * as path from "node:path"
 import { loadEvents, resolveArtifactPath, runInvocation } from "../../dist/index.js"
+import { formatValue } from "../format-value.mjs"
 
 function assert(cond, msg) {
   if (!cond) {
@@ -121,16 +122,16 @@ const summary = events.find((e) => e.type === "compaction.summary")
 assert(summary !== undefined, "expected compaction.summary event")
 assert(
   Array.isArray(summary.coveredEventIds) && summary.coveredEventIds.length >= 4,
-  `coveredEventIds should be non-trivial; got ${JSON.stringify(summary.coveredEventIds)}`,
+  `coveredEventIds should be non-trivial; got ${formatValue(summary.coveredEventIds)}`,
 )
 assert(
   typeof summary.sourceArtifactId === "string" && summary.sourceArtifactId.startsWith("artifact_"),
-  `sourceArtifactId looks wrong: ${summary.sourceArtifactId}`,
+  `sourceArtifactId looks wrong: ${formatValue(summary.sourceArtifactId)}`,
 )
 assert(summary.summaryText === SUMMARY_TEXT, "summaryText should match the scripted return")
 assert(
   summary.generatedByModel === "fake-main",
-  `unexpected summarizer model: ${summary.generatedByModel}`,
+  `unexpected summarizer model: ${formatValue(summary.generatedByModel)}`,
 )
 
 // The full window is on disk under sourceArtifactId.
@@ -153,11 +154,11 @@ const completed = events.find((e) => e.type === "compaction.completed")
 assert(completed !== undefined, "expected compaction.completed")
 assert(
   completed.watermarksCrossed.includes("summarize_one_window"),
-  `expected summarize_one_window watermark, got ${JSON.stringify(completed.watermarksCrossed)}`,
+  `expected summarize_one_window watermark, got ${formatValue(completed.watermarksCrossed)}`,
 )
 assert(
   completed.summarizedWindowCount === 1,
-  `expected summarizedWindowCount=1, got ${completed.summarizedWindowCount}`,
+  `expected summarizedWindowCount=1, got ${formatValue(completed.summarizedWindowCount)}`,
 )
 
 // The 5th main provider request (the one after compaction) should have

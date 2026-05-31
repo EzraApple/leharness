@@ -1,6 +1,11 @@
 import * as fs from "node:fs/promises"
 import * as path from "node:path"
-import type { Tool, ToolContext, ToolExecuteResult } from "@leharness/harness"
+import {
+  readErrorCode,
+  type Tool,
+  type ToolContext,
+  type ToolExecuteResult,
+} from "@leharness/harness"
 import { z } from "zod"
 
 const createFileArgs = z.object({
@@ -41,7 +46,7 @@ export const createFileTool: Tool<CreateFileArgs> = {
 }
 
 function summarizeCreateError(err: unknown): string {
-  if ((err as NodeJS.ErrnoException).code === "EEXIST") return "file already exists"
+  if (readErrorCode(err) === "EEXIST") return "file already exists"
   return err instanceof Error ? err.message : String(err)
 }
 

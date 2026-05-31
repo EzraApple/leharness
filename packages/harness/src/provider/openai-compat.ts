@@ -135,7 +135,7 @@ export class OpenAICompatProvider implements Provider {
     return body
   }
 
-  protected customizeBody(_req: ProviderRequest, _body: OpenAIChatRequest): void {}
+  protected customizeBody(_req: ProviderRequest, _body: OpenAIChatRequest) {}
 
   protected translateMessage(msg: HarnessMessage): OpenAIMessage {
     switch (msg.role) {
@@ -164,6 +164,7 @@ export class OpenAICompatProvider implements Provider {
     const body = this.buildBody(req, false)
     let response: OpenAIChatCompletion
     try {
+      // oxlint-disable-next-line leharness/no-as-cast -- OpenAI SDK overloads do not accept the shared provider-compatible request body.
       response = (await this.client.chat.completions.create(body as never, {
         signal: req.signal,
       })) as unknown as OpenAIChatCompletion
@@ -199,6 +200,7 @@ export class OpenAICompatProvider implements Provider {
     const body = this.buildBody(req, true)
     let stream: AsyncIterable<OpenAIChatChunk>
     try {
+      // oxlint-disable-next-line leharness/no-as-cast -- OpenAI SDK overloads do not accept the shared provider-compatible streaming body.
       stream = (await this.client.chat.completions.create(body as never, {
         signal: req.signal,
       })) as unknown as AsyncIterable<OpenAIChatChunk>
@@ -302,7 +304,7 @@ function emitToolCallDelta(
   index: number,
   slot: OpenAIToolCall,
   argumentsDelta: string | undefined,
-): void {
+) {
   const delta: ToolCallDelta = { index }
   if (slot.id.length > 0) delta.id = slot.id
   if (slot.function.name.length > 0) delta.name = slot.function.name
@@ -355,12 +357,12 @@ class InlineReasoningParser {
     private readonly onReasoningText?: (delta: string) => void,
   ) {}
 
-  write(chunk: string): void {
+  write(chunk: string) {
     this.buffer += chunk
     this.drain(false)
   }
 
-  finish(): void {
+  finish() {
     this.drain(true)
   }
 
@@ -370,7 +372,7 @@ class InlineReasoningParser {
     return { text, reasoningText: reasoningText.length > 0 ? reasoningText : undefined }
   }
 
-  private drain(final: boolean): void {
+  private drain(final: boolean) {
     while (this.buffer.length > 0) {
       const tag = this.mode === "text" ? "<think>" : "</think>"
       const index = this.buffer.indexOf(tag)
@@ -395,7 +397,7 @@ class InlineReasoningParser {
     }
   }
 
-  private emit(value: string): void {
+  private emit(value: string) {
     if (value.length === 0) return
     if (this.mode === "text") {
       this.textParts.push(value)

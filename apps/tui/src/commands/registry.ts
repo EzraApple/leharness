@@ -86,7 +86,7 @@ export function findCommand(text: string): { command: Command; args: string } | 
 // agent-led (it edits .leharness/mcp.json via file tools, guided by the
 // leharness-tui skill); these are the user-led ops only. We reload first so
 // agent-added servers in the config are reconciled before the subcommand.
-async function runMcp(ctx: CommandContext, args: string): Promise<void> {
+async function runMcp(ctx: CommandContext, args: string) {
   const mcp = ctx.mcp
   if (mcp === undefined) {
     ctx.note("mcp", "MCP is unavailable in this session.")

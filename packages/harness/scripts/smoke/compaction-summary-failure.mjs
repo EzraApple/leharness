@@ -10,6 +10,7 @@ import * as fs from "node:fs/promises"
 import * as os from "node:os"
 import * as path from "node:path"
 import { loadEvents, runInvocation } from "../../dist/index.js"
+import { formatValue } from "../format-value.mjs"
 
 function assert(cond, msg) {
   if (!cond) {
@@ -99,7 +100,7 @@ assert(
 )
 assert(
   typeof failed.error === "string" && failed.error.includes("simulated summarizer outage"),
-  `expected error to mention the outage; got "${failed.error}"`,
+  `expected error to mention the outage; got "${formatValue(failed.error)}"`,
 )
 
 // No compaction.summary event for that attempt (only the failure).

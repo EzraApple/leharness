@@ -2,6 +2,7 @@ import * as fs from "node:fs/promises"
 import * as os from "node:os"
 import * as path from "node:path"
 import { buildPrompt, loadEvents, runInvocation } from "../../dist/index.js"
+import { formatValue } from "../format-value.mjs"
 
 function assert(cond, msg) {
   if (!cond) {
@@ -54,8 +55,14 @@ async function smokeMaxSteps() {
   )
   const final = events.at(-1)
   assert(final?.type === "agent.finished", "maxSteps should finish the invocation")
-  assert(final.reason === "max_steps", `expected max_steps reason, got ${final?.reason}`)
-  assert(final.maxSteps === 2, `expected maxSteps payload to be 2, got ${final.maxSteps}`)
+  assert(
+    final.reason === "max_steps",
+    `expected max_steps reason, got ${formatValue(final?.reason)}`,
+  )
+  assert(
+    final.maxSteps === 2,
+    `expected maxSteps payload to be 2, got ${formatValue(final.maxSteps)}`,
+  )
 }
 
 async function smokeModelFailure() {
@@ -81,7 +88,10 @@ async function smokeModelFailure() {
     `model.failed should include provider error text, got ${JSON.stringify(failed?.error)}`,
   )
   assert(final?.type === "agent.finished", "model failure should finish the invocation")
-  assert(final.reason === "model_failed", `expected model_failed reason, got ${final?.reason}`)
+  assert(
+    final.reason === "model_failed",
+    `expected model_failed reason, got ${formatValue(final?.reason)}`,
+  )
 }
 
 async function smokePreCancelled() {
@@ -167,7 +177,7 @@ async function smokeCancelDuringProvider() {
   const partial = persisted.find((event) => event.type === "model.cancelled")
   assert(
     partial?.text === "partial answer",
-    `model.cancelled should persist emitted text, got ${partial?.text}`,
+    `model.cancelled should persist emitted text, got ${formatValue(partial?.text)}`,
   )
   const prompt = buildPrompt(persisted, [], { model: "fake" })
   assert(

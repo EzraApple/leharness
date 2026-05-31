@@ -124,7 +124,7 @@ export class McpManager {
 
   // Connect every configured server. A failure on one is isolated:
   // logged via status, never thrown, never blocks the others.
-  async connectAll(opts: ConnectOptions): Promise<void> {
+  async connectAll(opts: ConnectOptions) {
     this.lastConnectOptions = opts
     await Promise.all(this.options().map((server) => this.connectOne(server, opts)))
   }
@@ -137,12 +137,12 @@ export class McpManager {
   // the edit applies on the next /mcp; unchanged servers keep their live
   // connection. No-op until connectAll has run — it seeds the connect
   // options reused here.
-  async syncServers(servers: ServerConfig[]): Promise<void> {
+  async syncServers(servers: ServerConfig[]) {
     const opts = this.lastConnectOptions
     if (opts === undefined) return
     const next = new Map(servers.map((s) => [s.name, s]))
 
-    for (const name of [...this.serverByName.keys()]) {
+    for (const name of this.serverByName.keys()) {
       if (!next.has(name)) {
         await this.disconnectOne(name)
         this.serverByName.delete(name)
@@ -164,7 +164,7 @@ export class McpManager {
     await Promise.all(toConnect.map((server) => this.connectOne(server, opts)))
   }
 
-  async reconnect(name: string): Promise<void> {
+  async reconnect(name: string) {
     const server = this.serverByName.get(name)
     if (server === undefined || this.lastConnectOptions === undefined) return
     await this.disconnectOne(name)
@@ -173,7 +173,7 @@ export class McpManager {
   }
 
   // Run the interactive OAuth flow for one server, then connect it.
-  async authorizeServer(name: string): Promise<void> {
+  async authorizeServer(name: string) {
     const server = this.serverByName.get(name)
     if (server === undefined || server.kind !== "http" || this.lastConnectOptions === undefined) {
       return
@@ -183,7 +183,7 @@ export class McpManager {
     await this.connectOne(server, { ...this.lastConnectOptions, interactiveAuth: true })
   }
 
-  async logout(name: string): Promise<void> {
+  async logout(name: string) {
     await this.store.clear(name)
     await this.disconnectOne(name)
     this.setStatus(name, "auth_required")
@@ -195,7 +195,7 @@ export class McpManager {
     return all
   }
 
-  async closeAll(): Promise<void> {
+  async closeAll() {
     await Promise.all([...this.connected.values()].map(({ client }) => client.close()))
     this.connected.clear()
   }
@@ -204,7 +204,7 @@ export class McpManager {
     return [...this.serverByName.values()]
   }
 
-  private setStatus(name: string, status: McpStatus): void {
+  private setStatus(name: string, status: McpStatus) {
     // A healthy transition clears any stale failure reason; failed/exited
     // keep whatever the caller recorded just before calling setStatus.
     if (status !== "failed" && status !== "exited") this.errorByServer.delete(name)
@@ -212,14 +212,14 @@ export class McpManager {
     for (const listener of this.listeners) listener(name, status)
   }
 
-  private recordStderr(name: string, line: string): void {
+  private recordStderr(name: string, line: string) {
     const tail = this.stderrTailByServer.get(name) ?? []
     tail.push(line)
     while (tail.length > STDERR_TAIL_LIMIT) tail.shift()
     this.stderrTailByServer.set(name, tail)
   }
 
-  private async disconnectOne(name: string): Promise<void> {
+  private async disconnectOne(name: string) {
     const conn = this.connected.get(name)
     if (conn !== undefined) {
       await conn.client.close()
@@ -227,7 +227,7 @@ export class McpManager {
     }
   }
 
-  private async connectOne(server: ServerConfig, opts: ConnectOptions): Promise<void> {
+  private async connectOne(server: ServerConfig, opts: ConnectOptions) {
     // Fresh attempt — drop stderr captured from any previous try.
     this.stderrTailByServer.delete(server.name)
     try {

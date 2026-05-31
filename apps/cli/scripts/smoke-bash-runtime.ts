@@ -18,6 +18,8 @@ import {
   type Provider,
   type ProviderRequest,
   type ProviderResponse,
+  readStringField,
+  readToolCall,
   runInvocation,
   taskManagementCapability,
 } from "@leharness/harness"
@@ -48,8 +50,8 @@ function findTaskIdInRequest(request: ProviderRequest): string | undefined {
   for (const message of request.messages) {
     if (message.role !== "tool" || typeof message.content !== "string") continue
     try {
-      const parsed = JSON.parse(message.content) as { task_id?: unknown }
-      if (typeof parsed.task_id === "string") return parsed.task_id
+      const taskId = readStringField(JSON.parse(message.content), "task_id")
+      if (taskId !== undefined) return taskId
     } catch {
       // Not a JSON-shaped tool message; skip.
     }
@@ -67,7 +69,7 @@ function baseDeps(provider: Provider): HarnessDeps {
   }
 }
 
-function delay(ms: number): Promise<void> {
+function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
@@ -85,9 +87,7 @@ function delay(ms: number): Promise<void> {
   ])
   const events = await runInvocation(sessionId, "run echo hi", baseDeps(provider))
   const completed = events.find(
-    (event) =>
-      event.type === "tool.completed" &&
-      (event.call as { name?: string } | undefined)?.name === "bash",
+    (event) => event.type === "tool.completed" && readToolCall(event.call)?.name === "bash",
   )
   assert.ok(completed, "expected tool.completed for foreground bash")
   assert.match(String(completed?.result ?? ""), /hi/, "result should contain echoed text")
@@ -122,9 +122,7 @@ function delay(ms: number): Promise<void> {
   const started = events.find((event) => event.type === "task.started")
   assert.ok(started, "expected task.started once inline_ms expired")
   const inlineCompleted = events.find(
-    (event) =>
-      event.type === "tool.completed" &&
-      (event.call as { name?: string } | undefined)?.name === "bash",
+    (event) => event.type === "tool.completed" && readToolCall(event.call)?.name === "bash",
   )
   assert.equal(
     inlineCompleted,
@@ -217,7 +215,7 @@ function delay(ms: number): Promise<void> {
   const cancelled = events.find((event) => event.type === "task.cancelled")
   assert.ok(cancelled, "expected task.cancelled event in the drained log")
   assert.equal(
-    (cancelled as { reason?: string }).reason,
+    readStringField(cancelled, "reason"),
     "parent",
     "cancellation reason should be 'parent' (parent agent called cancel_task)",
   )

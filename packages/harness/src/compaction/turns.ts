@@ -10,6 +10,7 @@
 // though events are the unit the loop records.
 
 import type { Event } from "../events.js"
+import { readToolCall } from "../tools.js"
 
 export interface CompactionTurn {
   // First event in the turn — either an invocation.received or
@@ -77,9 +78,9 @@ function renderEventForSummarizer(event: Event, chunkCap: number): string | unde
       if (toolCalls.length > 0) {
         const summarized = toolCalls
           .map((call) => {
-            const c = call as { name?: unknown; args?: unknown }
-            const name = typeof c.name === "string" ? c.name : "?"
-            const args = c.args === undefined ? "" : truncate(JSON.stringify(c.args), 200)
+            const c = readToolCall(call)
+            const name = c?.name ?? "?"
+            const args = c?.args === undefined ? "" : truncate(JSON.stringify(c.args), 200)
             return `  → ${name}(${args})`
           })
           .join("\n")
@@ -88,8 +89,7 @@ function renderEventForSummarizer(event: Event, chunkCap: number): string | unde
       return parts.length > 0 ? parts.join("\n") : undefined
     }
     case "tool.completed": {
-      const call = event.call as { name?: unknown } | undefined
-      const name = typeof call?.name === "string" ? call.name : "?"
+      const name = readToolCall(event.call)?.name ?? "?"
       const result = readString(event, "result") ?? ""
       const summary = readString(event, "summary")
       const body =
@@ -99,8 +99,7 @@ function renderEventForSummarizer(event: Event, chunkCap: number): string | unde
       return `Tool ${name} → ${body}`
     }
     case "tool.failed": {
-      const call = event.call as { name?: unknown } | undefined
-      const name = typeof call?.name === "string" ? call.name : "?"
+      const name = readToolCall(event.call)?.name ?? "?"
       const error = readString(event, "error") ?? ""
       return `Tool ${name} FAILED → ${truncate(error, chunkCap)}`
     }

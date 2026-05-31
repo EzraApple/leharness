@@ -23,6 +23,8 @@ import {
   type Provider,
   type ProviderRequest,
   type ProviderResponse,
+  readRecordField,
+  readStringField,
   registerSubagentPreset,
   runInvocation,
   subagentsCapability,
@@ -52,25 +54,26 @@ function findStartedTask(events: ReadonlyArray<{ type: string; task?: unknown }>
   | undefined {
   for (const event of events) {
     if (event.type !== "task.started") continue
-    const task = event.task as
-      | {
-          id?: string
-          kind?: string
-          payload?: { kind?: string; childSessionId?: string; presetName?: string; prompt?: string }
-        }
-      | undefined
-    if (task?.kind === "delegated" && typeof task.id === "string") {
+    const task = readRecordField(event, "task")
+    const payload = readRecordField(task, "payload")
+    const id = readStringField(task, "id")
+    if (readStringField(task, "kind") === "delegated" && id !== undefined) {
       return {
-        id: task.id,
-        kind: task.kind,
-        payload: task.payload ?? {},
+        id,
+        kind: "delegated",
+        payload: {
+          kind: readStringField(payload, "kind"),
+          childSessionId: readStringField(payload, "childSessionId"),
+          presetName: readStringField(payload, "presetName"),
+          prompt: readStringField(payload, "prompt"),
+        },
       }
     }
   }
   return undefined
 }
 
-function delay(ms: number): Promise<void> {
+function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
@@ -338,8 +341,7 @@ function parentDeps(
       for (const message of request.messages) {
         if (message.role !== "tool" || typeof message.content !== "string") continue
         try {
-          const parsed = JSON.parse(message.content) as { task_id?: unknown }
-          if (typeof parsed.task_id === "string") lastTaskId = parsed.task_id
+          lastTaskId = readStringField(JSON.parse(message.content), "task_id") ?? lastTaskId
         } catch {
           // skip
         }
@@ -381,7 +383,7 @@ function parentDeps(
   )
   const cancelledEvent = events.find((event) => event.type === "task.cancelled")
   assert.ok(cancelledEvent, "expected task.cancelled drained")
-  assert.equal((cancelledEvent as { reason?: string }).reason, "parent")
+  assert.equal(readStringField(cancelledEvent, "reason"), "parent")
 
   const started = findStartedTask(events)
   if (started?.payload.childSessionId) await disposeTaskServices(started.payload.childSessionId)

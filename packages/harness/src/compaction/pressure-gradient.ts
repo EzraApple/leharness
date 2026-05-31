@@ -27,7 +27,8 @@ import { formatArtifactStub, resolveArtifactPath, writeArtifact } from "../artif
 import type { Event } from "../events.js"
 import { eventToMessage, type PromptInput } from "../prompt.js"
 import type { HarnessMessage } from "../provider/index.js"
-import type { ToolCall } from "../tools.js"
+import { readNumberField, readRecordField } from "../readers.js"
+import { readToolCall, readToolCalls } from "../tools.js"
 import { type CompactionSummary, loadSummaryCache } from "./cache.js"
 import { pickOldestUnsummarizedWindow, summarizeWindow } from "./summarize.js"
 import { groupEventsIntoTurns } from "./turns.js"
@@ -146,8 +147,7 @@ export async function pressureGradient(input: PromptInput): Promise<PromptInput>
       if (ctx.coveredEventIds.has(event.id)) continue
       if (event.type !== "tool.completed") continue
       if (typeof event.artifactId === "string") continue // already an artifact at write time
-      const call = event.call as { id?: string } | undefined
-      const callId = call?.id
+      const callId = readToolCall(event.call)?.id
       if (callId === undefined) continue
       const result = typeof event.result === "string" ? event.result : ""
       if (Buffer.byteLength(result, "utf8") < PROMOTE_INLINE_MIN_BYTES) continue
@@ -187,8 +187,7 @@ export async function pressureGradient(input: PromptInput): Promise<PromptInput>
       if (!eligibleEventIds.has(event.id)) continue
       if (ctx.coveredEventIds.has(event.id)) continue
       if (event.type !== "tool.completed") continue
-      const call = event.call as { id?: string } | undefined
-      const callId = call?.id
+      const callId = readToolCall(event.call)?.id
       if (callId === undefined) continue
       if (ctx.toolReplacementByCallId.has(callId)) continue // T2 already handled
       const existingArtifactId = typeof event.artifactId === "string" ? event.artifactId : undefined
@@ -242,13 +241,15 @@ export async function pressureGradient(input: PromptInput): Promise<PromptInput>
         lastInputTokens,
         pressureRatio,
       })
+      const sessionId = input.sessionId
+      const provider = input.provider
       const results = await Promise.all(
         picked.map(async (window) => {
           const outcome = await summarizeWindow({
-            sessionId: input.sessionId as string,
+            sessionId,
             windowTurns: window.windowTurns,
             windowEventIds: window.eventIds,
-            provider: input.provider as NonNullable<typeof input.provider>,
+            provider,
             model: input.model,
             summarizerModel: input.compaction?.summarizerModel,
             signal: input.signal,
@@ -341,7 +342,7 @@ export async function pressureGradient(input: PromptInput): Promise<PromptInput>
   return { ...input, messages }
 }
 
-function applySummary(ctx: ProjectionContext, summary: CompactionSummary): void {
+function applySummary(ctx: ProjectionContext, summary: CompactionSummary) {
   const first = summary.coveredEventIds[0]
   if (first === undefined) return
   ctx.summaryByFirstEventId.set(first, { summary })
@@ -376,7 +377,7 @@ function projectSingleEventWithTransforms(
 ): HarnessMessage | null {
   // T2/T3 tool-result replacement
   if (event.type === "tool.completed") {
-    const call = event.call as { id?: string } | undefined
+    const call = readToolCall(event.call)
     if (call?.id !== undefined) {
       const replacement = ctx.toolReplacementByCallId.get(call.id)
       if (replacement !== undefined) {
@@ -389,7 +390,7 @@ function projectSingleEventWithTransforms(
     return {
       role: "assistant",
       content: typeof event.text === "string" ? event.text : "",
-      toolCalls: (event.toolCalls as ToolCall[]) ?? [],
+      toolCalls: readToolCalls(event.toolCalls),
     }
   }
   return eventToMessage(event)
@@ -411,8 +412,8 @@ function findLastInputTokens(events: Event[]): number | undefined {
   for (let i = events.length - 1; i >= 0; i--) {
     const event = events[i]
     if (event?.type !== "model.completed") continue
-    const usage = event.usage as { promptTokens?: number } | undefined
-    if (typeof usage?.promptTokens === "number") return usage.promptTokens
+    const promptTokens = readNumberField(readRecordField(event, "usage"), "promptTokens")
+    if (promptTokens !== undefined) return promptTokens
   }
   return undefined
 }

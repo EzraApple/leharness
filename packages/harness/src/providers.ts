@@ -14,7 +14,7 @@ export const SUPPORTED_PROVIDERS = ["ollama", "openai", "deepseek"] as const
 export type ProviderName = (typeof SUPPORTED_PROVIDERS)[number]
 
 export function isProviderName(value: string): value is ProviderName {
-  return SUPPORTED_PROVIDERS.includes(value as ProviderName)
+  return SUPPORTED_PROVIDERS.some((providerName) => providerName === value)
 }
 
 export function buildProvider(name: string): Provider {

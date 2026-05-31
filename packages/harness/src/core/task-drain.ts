@@ -21,24 +21,19 @@
 
 import { AUTO_ARTIFACT_THRESHOLD_BYTES, formatArtifactStub, writeArtifact } from "../artifacts.js"
 import type { Event } from "../events.js"
+import { readRecordField } from "../readers.js"
 import type { Message, SessionTaskServices } from "../tasks.js"
 import { truncateOutput } from "../tools.js"
 import type { InvocationState } from "./state.js"
 
-export async function drainTaskQueue(
-  invocation: InvocationState,
-  services: SessionTaskServices,
-): Promise<void> {
+export async function drainTaskQueue(invocation: InvocationState, services: SessionTaskServices) {
   for (const message of services.queue.drain()) {
     const payload = await materializeMessage(invocation, message)
     await invocation.recordEvent(message.kind, payload)
   }
 }
 
-export async function reapOrphanTasks(
-  invocation: InvocationState,
-  services: SessionTaskServices,
-): Promise<void> {
+export async function reapOrphanTasks(invocation: InvocationState, services: SessionTaskServices) {
   const startedTaskIds = new Set<string>()
   const terminalTaskIds = new Set<string>()
   for (const event of invocation.events) {
@@ -127,6 +122,6 @@ async function renderLarge(
 
 function readEventTaskId(event: Event): string | undefined {
   if (typeof event.taskId === "string") return event.taskId
-  const task = event.task as { id?: unknown } | undefined
+  const task = readRecordField(event, "task")
   return typeof task?.id === "string" ? task.id : undefined
 }

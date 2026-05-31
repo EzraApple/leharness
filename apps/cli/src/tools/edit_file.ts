@@ -70,7 +70,7 @@ function countMatches(value: string, needle: string): number {
   return count
 }
 
-async function writeFileAtomic(target: string, content: string): Promise<void> {
+async function writeFileAtomic(target: string, content: string) {
   const directory = path.dirname(target)
   const basename = path.basename(target)
   const tmp = path.join(directory, `.${basename}.leharness-${process.pid}-${Date.now()}.tmp`)

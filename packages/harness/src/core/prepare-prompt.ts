@@ -104,7 +104,7 @@ async function foldCapabilities(
   return { system, tools }
 }
 
-function appendMissingTools(tools: Tool[], contributed: Tool[]): void {
+function appendMissingTools(tools: Tool[], contributed: Tool[]) {
   const existingNames = new Set(tools.map((tool) => tool.name))
   for (const tool of contributed) {
     if (existingNames.has(tool.name)) continue

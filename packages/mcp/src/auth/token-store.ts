@@ -5,6 +5,7 @@
 
 import { promises as fs } from "node:fs"
 import path from "node:path"
+import { isRecord, readStringField } from "../readers.js"
 
 export interface StoredTokens {
   accessToken: string
@@ -31,7 +32,7 @@ export function createFileTokenStore(authDir: string): TokenStore {
     async load(server) {
       try {
         const raw = await fs.readFile(fileFor(server), "utf8")
-        return JSON.parse(raw) as StoredTokens
+        return parseStoredTokens(JSON.parse(raw))
       } catch {
         return undefined
       }
@@ -43,5 +44,19 @@ export function createFileTokenStore(authDir: string): TokenStore {
     async clear(server) {
       await fs.rm(fileFor(server), { force: true })
     },
+  }
+}
+
+function parseStoredTokens(value: unknown): StoredTokens | undefined {
+  if (!isRecord(value)) return undefined
+  const accessToken = readStringField(value, "accessToken")
+  if (accessToken === undefined) return undefined
+  const expiresAt = typeof value.expiresAt === "number" ? value.expiresAt : undefined
+  return {
+    accessToken,
+    refreshToken: readStringField(value, "refreshToken"),
+    expiresAt,
+    clientId: readStringField(value, "clientId"),
+    clientSecret: readStringField(value, "clientSecret"),
   }
 }

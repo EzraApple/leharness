@@ -9,6 +9,7 @@ import * as os from "node:os"
 import * as path from "node:path"
 import { z } from "zod"
 import { loadEvents, runInvocation } from "../../dist/index.js"
+import { formatValue } from "../format-value.mjs"
 
 function assert(cond, msg) {
   if (!cond) {
@@ -88,7 +89,7 @@ const compactionCompleted = events.find((e) => e.type === "compaction.completed"
 assert(compactionCompleted !== undefined, "expected a compaction.completed event")
 assert(
   compactionCompleted.watermarksCrossed.includes("drop_old_tool_bodies"),
-  `expected drop_old_tool_bodies watermark, got ${JSON.stringify(compactionCompleted.watermarksCrossed)}`,
+  `expected drop_old_tool_bodies watermark, got ${formatValue(compactionCompleted.watermarksCrossed)}`,
 )
 assert(
   !compactionCompleted.watermarksCrossed.includes("promote_inline_results"),
@@ -96,7 +97,7 @@ assert(
 )
 assert(
   compactionCompleted.droppedToolBodyCount === 1,
-  `expected 1 dropped tool body, got ${compactionCompleted.droppedToolBodyCount}`,
+  `expected 1 dropped tool body, got ${formatValue(compactionCompleted.droppedToolBodyCount)}`,
 )
 
 // Projected prompt should have the tombstone in place of the original

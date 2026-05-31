@@ -197,11 +197,11 @@ export const transcriptTestInternals = {
   buildRows,
 }
 
-function pushThinking(rows: TranscriptRow[], cell: Cell, width: number): void {
+function pushThinking(rows: TranscriptRow[], cell: Cell, width: number) {
   pushHeadlineWrapped(rows, cell, "thinking", width, color.meta, color.meta, undefined, true)
 }
 
-function pushUserWrapped(rows: TranscriptRow[], cell: Cell, text: string, width: number): void {
+function pushUserWrapped(rows: TranscriptRow[], cell: Cell, text: string, width: number) {
   pushWrapped(rows, cell, text, width, {
     backgroundColor: color.userBg,
     contMarker: glyph.rail,
@@ -211,7 +211,7 @@ function pushUserWrapped(rows: TranscriptRow[], cell: Cell, text: string, width:
   })
 }
 
-function pushTool(rows: TranscriptRow[], cell: Cell, width: number): void {
+function pushTool(rows: TranscriptRow[], cell: Cell, width: number) {
   if (cell.background !== undefined) {
     pushBackgroundTool(rows, cell, width)
     return
@@ -233,7 +233,7 @@ function pushTool(rows: TranscriptRow[], cell: Cell, width: number): void {
   })
 }
 
-function pushBackgroundTool(rows: TranscriptRow[], cell: Cell, width: number): void {
+function pushBackgroundTool(rows: TranscriptRow[], cell: Cell, width: number) {
   const marker = cell.background
   if (marker === undefined) return
   const idSuffix = `· ${backgroundTaskKindLabel(cell)} ${shortTaskId(marker.taskId)}`
@@ -305,7 +305,7 @@ function pushRunningSubagentBox(
   title: string,
   taskId: string,
   width: number,
-): void {
+) {
   const label = "subagent"
   const body = `${title} · ${shortTaskId(taskId)}`
   const minWidth = visibleWidth(`┌─ ${label} ┐`)
@@ -357,7 +357,7 @@ function shortTaskId(id: string, head = 12): string {
   return id.length <= head + 1 ? id : `${id.slice(0, head)}…`
 }
 
-function pushSystem(rows: TranscriptRow[], cell: Cell, width: number): void {
+function pushSystem(rows: TranscriptRow[], cell: Cell, width: number) {
   pushBlank(rows, cell.id)
   const tone =
     cell.outcome === "failed"
@@ -374,7 +374,7 @@ function pushSystem(rows: TranscriptRow[], cell: Cell, width: number): void {
   })
 }
 
-function pushPendingTool(rows: TranscriptRow[], cell: Cell, text: string, width: number): void {
+function pushPendingTool(rows: TranscriptRow[], cell: Cell, text: string, width: number) {
   pushHeadlineWrapped(
     rows,
     cell,
@@ -475,7 +475,7 @@ function pushTreeBlock(
     headlineTextColor?: string
     width: number
   },
-): void {
+) {
   pushWrapped(rows, cell, opts.headline, opts.width, {
     contMarker: glyph.rail,
     firstMarker: glyph.headline,
@@ -506,7 +506,7 @@ function pushHeadlineWrapped(
   backgroundColor?: string,
   spinner?: boolean,
   partPrefix = "dot",
-): void {
+) {
   pushWrapped(rows, cell, text, width, {
     backgroundColor,
     contMarker: glyph.rail,
@@ -518,12 +518,7 @@ function pushHeadlineWrapped(
   })
 }
 
-function pushHeadlineMarkdown(
-  rows: TranscriptRow[],
-  cell: Cell,
-  text: string,
-  width: number,
-): void {
+function pushHeadlineMarkdown(rows: TranscriptRow[], cell: Cell, text: string, width: number) {
   const markerWidth = visibleWidth(glyph.headline)
   const bodyWidth = Math.max(8, width - markerWidth)
   const rendered = renderMarkdown(text, bodyWidth)
@@ -559,7 +554,7 @@ function pushWrapped(
     spinner?: boolean
     textColor?: string
   },
-): void {
+) {
   const markerWidth = visibleWidth(opts.firstMarker)
   const bodyWidth = Math.max(8, width - markerWidth)
   const prefix = opts.partPrefix ?? "row"
@@ -578,7 +573,7 @@ function pushWrapped(
   }
 }
 
-function pushBlank(rows: TranscriptRow[], cellId: string): void {
+function pushBlank(rows: TranscriptRow[], cellId: string) {
   rows.push({ id: `${cellId}:blank:${rows.length}`, text: " " })
 }
 
@@ -592,7 +587,7 @@ function pushLine(
   spinner?: boolean,
   marker?: string,
   markerColor?: string,
-): void {
+) {
   rows.push({
     backgroundColor,
     color: textColor,

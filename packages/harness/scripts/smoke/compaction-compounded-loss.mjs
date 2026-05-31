@@ -15,6 +15,7 @@ import * as fs from "node:fs/promises"
 import * as os from "node:os"
 import * as path from "node:path"
 import { loadEvents, runInvocation } from "../../dist/index.js"
+import { formatValue } from "../format-value.mjs"
 
 function assert(cond, msg) {
   if (!cond) {
@@ -116,7 +117,7 @@ const firstSummary = events.find((e) => e.type === "compaction.summary")
 assert(firstSummary !== undefined, "expected at least one compaction.summary")
 assert(
   firstSummary.summaryText === "FIRST_SUMMARY",
-  `first summary should be "FIRST_SUMMARY", got "${firstSummary.summaryText}"`,
+  `first summary should be "FIRST_SUMMARY", got "${formatValue(firstSummary.summaryText)}"`,
 )
 
 // The original summary's coveredEventIds set should be present in EVERY

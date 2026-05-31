@@ -15,6 +15,7 @@
 // (bearer header static if provided, OAuth on 401 otherwise).
 
 import { promises as fs } from "node:fs"
+import { isRecord, readErrorMessage, readRecordField, readStringField } from "./readers.js"
 
 export interface StdioServerConfig {
   kind: "stdio"
@@ -56,16 +57,16 @@ export function parseMcpConfig(raw: string): ParsedConfig {
   try {
     json = JSON.parse(raw)
   } catch (err) {
-    return { servers: [], warnings: [`mcp.json is not valid JSON: ${(err as Error).message}`] }
+    return { servers: [], warnings: [`mcp.json is not valid JSON: ${readErrorMessage(err)}`] }
   }
 
-  const mcpServers = (json as { mcpServers?: unknown })?.mcpServers
-  if (typeof mcpServers !== "object" || mcpServers === null) {
+  const mcpServers = readRecordField(json, "mcpServers")
+  if (mcpServers === undefined) {
     return { servers: [], warnings: ['mcp.json has no "mcpServers" object'] }
   }
 
   const servers: ServerConfig[] = []
-  for (const [name, value] of Object.entries(mcpServers as Record<string, unknown>)) {
+  for (const [name, value] of Object.entries(mcpServers)) {
     const parsed = parseServer(name, value, warnings)
     if (parsed !== undefined) servers.push(parsed)
   }
@@ -77,29 +78,24 @@ function parseServer(name: string, value: unknown, warnings: string[]): ServerCo
     warnings.push(`server "${name}" is not an object — skipped`)
     return undefined
   }
-  const v = value as {
-    command?: unknown
-    args?: unknown
-    env?: unknown
-    url?: unknown
-    headers?: unknown
-  }
 
-  if (typeof v.command === "string") {
+  const command = readStringField(value, "command")
+  if (command !== undefined) {
     return {
       kind: "stdio",
       name,
-      command: v.command,
-      args: stringArray(v.args),
-      env: stringRecord(v.env),
+      command,
+      args: stringArray(isRecord(value) ? value.args : undefined),
+      env: stringRecord(isRecord(value) ? value.env : undefined),
     }
   }
-  if (typeof v.url === "string") {
+  const url = readStringField(value, "url")
+  if (url !== undefined) {
     return {
       kind: "http",
       name,
-      url: v.url,
-      headers: stringRecord(v.headers),
+      url,
+      headers: stringRecord(isRecord(value) ? value.headers : undefined),
     }
   }
   warnings.push(`server "${name}" has neither "command" nor "url" — skipped`)
@@ -112,9 +108,9 @@ function stringArray(value: unknown): string[] {
 }
 
 function stringRecord(value: unknown): Record<string, string> {
-  if (typeof value !== "object" || value === null) return {}
   const out: Record<string, string> = {}
-  for (const [k, val] of Object.entries(value as Record<string, unknown>)) {
+  if (!isRecord(value)) return out
+  for (const [k, val] of Object.entries(value)) {
     if (typeof val === "string") out[k] = val
   }
   return out

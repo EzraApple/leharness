@@ -15,7 +15,8 @@ import type {
   ProviderRequest,
   ToolCallDelta,
 } from "./provider/index.js"
-import type { Tool, ToolCall } from "./tools.js"
+import { readRecordField, readStringField } from "./readers.js"
+import { readToolCall, readToolCalls, type Tool } from "./tools.js"
 
 export type { RecordEvent } from "./events.js"
 
@@ -124,25 +125,31 @@ export function buildRequest(input: PromptInput): ProviderRequest {
 export function eventToMessage(event: Event): HarnessMessage | null {
   switch (event.type) {
     case "invocation.received":
-      return { role: "user", content: event.text as string }
+      return { role: "user", content: readStringField(event, "text") ?? "" }
     case "model.completed":
     case "model.cancelled":
       return {
         role: "assistant",
-        content: event.text as string,
+        content: readStringField(event, "text") ?? "",
         reasoningText:
           typeof event.reasoningText === "string" && event.reasoningText.length > 0
             ? event.reasoningText
             : undefined,
-        toolCalls: (event.toolCalls as ToolCall[]) ?? [],
+        toolCalls: readToolCalls(event.toolCalls),
       }
     case "tool.completed": {
-      const call = event.call as ToolCall
-      return { role: "tool", toolCallId: call.id, content: event.result as string }
+      const call = readToolCall(event.call)
+      if (call === undefined) return null
+      return { role: "tool", toolCallId: call.id, content: readStringField(event, "result") ?? "" }
     }
     case "tool.failed": {
-      const call = event.call as ToolCall
-      return { role: "tool", toolCallId: call.id, content: `error: ${event.error as string}` }
+      const call = readToolCall(event.call)
+      if (call === undefined) return null
+      return {
+        role: "tool",
+        toolCallId: call.id,
+        content: `error: ${readStringField(event, "error") ?? ""}`,
+      }
     }
     case "task.started": {
       const callId = typeof event.callId === "string" ? event.callId : undefined
@@ -168,7 +175,7 @@ export function eventToMessage(event: Event): HarnessMessage | null {
 
 function readTaskIdField(event: Event): string {
   if (typeof event.taskId === "string") return event.taskId
-  const task = event.task as { id?: unknown } | undefined
+  const task = readRecordField(event, "task")
   return typeof task?.id === "string" ? task.id : "unknown"
 }
 
@@ -207,7 +214,8 @@ function toHarnessTool(tool: Tool): HarnessTool {
 
 function zodSchemaToJsonSchema(schema: ZodTypeAny): Record<string, unknown> {
   try {
-    return z.toJSONSchema(schema) as Record<string, unknown>
+    const schemaJson = z.toJSONSchema(schema)
+    return typeof schemaJson === "object" && schemaJson !== null ? schemaJson : { type: "object" }
   } catch {
     return { type: "object" }
   }

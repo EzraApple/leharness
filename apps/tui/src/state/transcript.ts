@@ -1,4 +1,12 @@
-import type { Event, TaskKind, ToolCall } from "@leharness/harness"
+import {
+  type Event,
+  readRecordField,
+  readStringField,
+  readToolCall,
+  readToolCalls,
+  type TaskKind,
+  type ToolCall,
+} from "@leharness/harness"
 import {
   completedSnapshotForCall,
   failedSnapshotForCall,
@@ -51,7 +59,7 @@ export function setLatestToolDetailExpanded(
   return { changed: true, state: next }
 }
 
-function pushCell(state: TranscriptState, cell: CellInput): void {
+function pushCell(state: TranscriptState, cell: CellInput) {
   const id = `cell-${state.nextCellId}`
   state.nextCellId += 1
   state.cells.push({ id, ...cell })
@@ -63,23 +71,23 @@ function appendCellInline(state: TranscriptState, cell: CellInput): number {
   return index
 }
 
-function updateCellInline(state: TranscriptState, index: number, update: Partial<CellInput>): void {
+function updateCellInline(state: TranscriptState, index: number, update: Partial<CellInput>) {
   const cell = state.cells[index]
   if (cell === undefined) return
   state.cells[index] = { ...cell, ...update }
 }
 
-function replaceCellTextInline(state: TranscriptState, index: number, text: string): void {
+function replaceCellTextInline(state: TranscriptState, index: number, text: string) {
   updateCellInline(state, index, { text })
 }
 
-function appendCellTextInline(state: TranscriptState, index: number, delta: string): void {
+function appendCellTextInline(state: TranscriptState, index: number, delta: string) {
   const cell = state.cells[index]
   if (cell === undefined) return
   replaceCellTextInline(state, index, `${cell.text}${delta}`)
 }
 
-function updateToolInline(state: TranscriptState, index: number, update: Partial<CellInput>): void {
+function updateToolInline(state: TranscriptState, index: number, update: Partial<CellInput>) {
   updateCellInline(state, index, update)
 }
 
@@ -257,11 +265,11 @@ export function reduceEvent(state: TranscriptState, event: Event): TranscriptSta
   return next
 }
 
-function handleTaskStarted(state: TranscriptState, event: Event): void {
+function handleTaskStarted(state: TranscriptState, event: Event) {
   const task = readTaskRecord(event.task)
   if (task === undefined) return
   const summary = typeof event.summary === "string" ? event.summary : undefined
-  const display = snapshotForTaskKind(task.kind as TaskKind, task.payload, summary)
+  const display = snapshotForTaskKind(task.kind, task.payload, summary)
   const command = task.payload?.command ?? ""
   const active: ActiveTask = {
     id: task.id,
@@ -300,7 +308,7 @@ function handleTaskTerminal(
   state: TranscriptState,
   event: Event,
   phase: "completed" | "failed" | "cancelled",
-): void {
+) {
   const taskId = typeof event.taskId === "string" ? event.taskId : undefined
   if (taskId === undefined) return
   const active = state.activeTasks.get(taskId)
@@ -308,8 +316,7 @@ function handleTaskTerminal(
   markStartedTaskInactive(state, taskId)
   const summary = typeof event.summary === "string" ? event.summary : undefined
   const display =
-    active?.display ??
-    snapshotForTaskKind((active?.kind ?? "shell") as TaskKind, undefined, summary)
+    active?.display ?? snapshotForTaskKind(active?.kind ?? "shell", undefined, summary)
   const text =
     phase === "cancelled"
       ? `cancelled (${typeof event.reason === "string" ? event.reason.replace("_", " ") : "user"})`
@@ -340,7 +347,7 @@ function handleTaskTerminal(
   })
 }
 
-function markStartedTaskInactive(state: TranscriptState, taskId: string): void {
+function markStartedTaskInactive(state: TranscriptState, taskId: string) {
   for (const [index, cell] of state.cells.entries()) {
     if (cell.background?.taskId !== taskId || cell.background.phase !== "started") continue
     updateCellInline(state, index, {
@@ -352,20 +359,21 @@ function markStartedTaskInactive(state: TranscriptState, taskId: string): void {
 function readTaskRecord(value: unknown):
   | {
       id: string
-      kind: string
+      kind: TaskKind
       payload: { command?: string } | undefined
       startedAt: string | undefined
     }
   | undefined {
-  if (typeof value !== "object" || value === null) return undefined
-  const record = value as Record<string, unknown>
-  if (typeof record.id !== "string" || typeof record.kind !== "string") return undefined
-  const payload =
-    typeof record.payload === "object" && record.payload !== null
-      ? (record.payload as { command?: string })
-      : undefined
+  const record = readRecordField({ value }, "value")
+  if (record === undefined) return undefined
+  const id = readStringField(record, "id")
+  const kind = readTaskKind(readStringField(record, "kind"))
+  if (id === undefined || kind === undefined) return undefined
+  const rawPayload = readRecordField(record, "payload")
+  const command = readStringField(rawPayload, "command")
+  const payload = command === undefined ? undefined : { command }
   const startedAt = typeof record.startedAt === "string" ? record.startedAt : undefined
-  return { id: record.id, kind: record.kind, payload, startedAt }
+  return { id, kind, payload, startedAt }
 }
 
 function readTerminalDetail(event: Event): string | undefined {
@@ -381,8 +389,8 @@ function readTerminalDetail(event: Event): string | undefined {
 // runs; until the first compaction.completed or a manual config, we
 // don't know the budget, so we cache a default of "tokens, undefined
 // budget" and let the footer hide the percentage in that case.
-function applyModelUsage(state: TranscriptState, event: Event): void {
-  const usage = event.usage as { promptTokens?: number } | undefined
+function applyModelUsage(state: TranscriptState, event: Event) {
+  const usage = readRecordField(event, "usage")
   const tokens = typeof usage?.promptTokens === "number" ? usage.promptTokens : undefined
   if (tokens === undefined) return
 
@@ -410,7 +418,7 @@ function applyModelUsage(state: TranscriptState, event: Event): void {
   }
 }
 
-function handleCompactionCompleted(state: TranscriptState, event: Event): void {
+function handleCompactionCompleted(state: TranscriptState, event: Event) {
   state.compactionInProgress = false
   const summarizedCount = readNumber(event, "summarizedWindowCount") ?? 0
   const droppedToolBodies = readNumber(event, "droppedToolBodyCount") ?? 0
@@ -456,7 +464,7 @@ function formatTokens(tokens: number): string {
   return String(tokens)
 }
 
-function commitAssistant(state: TranscriptState, event: Event): void {
+function commitAssistant(state: TranscriptState, event: Event) {
   const text = String(event.text ?? "")
   if (state.activeAssistantIndex === undefined) {
     if (text.length > 0) pushCell(state, { kind: "assistant", text })
@@ -466,7 +474,7 @@ function commitAssistant(state: TranscriptState, event: Event): void {
   state.activeAssistantIndex = undefined
 }
 
-function completeTool(state: TranscriptState, event: Event, status: ToolStatus): void {
+function completeTool(state: TranscriptState, event: Event, status: ToolStatus) {
   const call = readToolCall(event.call)
   const output = status === "completed" ? String(event.result ?? "") : String(event.error ?? "")
   const summary = typeof event.summary === "string" ? event.summary : undefined
@@ -505,7 +513,7 @@ function completeTool(state: TranscriptState, event: Event, status: ToolStatus):
   })
 }
 
-function prepareReadBatches(state: TranscriptState, calls: ToolCall[]): void {
+function prepareReadBatches(state: TranscriptState, calls: ToolCall[]) {
   let run: ToolCall[] = []
   for (const call of calls) {
     if (call.name === "read_file") {
@@ -518,7 +526,7 @@ function prepareReadBatches(state: TranscriptState, calls: ToolCall[]): void {
   registerReadBatch(state, run)
 }
 
-function registerReadBatch(state: TranscriptState, calls: ToolCall[]): void {
+function registerReadBatch(state: TranscriptState, calls: ToolCall[]) {
   if (calls.length < 2) return
   const key = `read-batch-${state.nextReadBatchId}`
   state.nextReadBatchId += 1
@@ -612,9 +620,7 @@ function readBatchText(batch: ReadBatch): string {
 }
 
 function readToolCallTarget(call: ToolCall): string {
-  if (typeof call.args !== "object" || call.args === null) return ""
-  const path = (call.args as Record<string, unknown>).path
-  return typeof path === "string" ? path : ""
+  return readStringField(call.args, "path") ?? ""
 }
 
 function compactToolSummary(summary: string | undefined): string | undefined {
@@ -702,20 +708,6 @@ function plural(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? "" : "s"}`
 }
 
-function readToolCalls(value: unknown): ToolCall[] {
-  return Array.isArray(value) ? value.filter(isToolCall) : []
-}
-
-function readToolCall(value: unknown): ToolCall | undefined {
-  return isToolCall(value) ? value : undefined
-}
-
-function isToolCall(value: unknown): value is ToolCall {
-  if (typeof value !== "object" || value === null) return false
-  const candidate = value as Record<string, unknown>
-  return (
-    typeof candidate.id === "string" &&
-    typeof candidate.name === "string" &&
-    Object.hasOwn(candidate, "args")
-  )
+function readTaskKind(value: string | undefined): TaskKind | undefined {
+  return value === "shell" || value === "delegated" ? value : undefined
 }

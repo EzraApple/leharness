@@ -11,12 +11,28 @@
 
 import type { ZodTypeAny } from "zod"
 import type { RecordEvent } from "./events.js"
+import { isRecord } from "./readers.js"
 import type { SessionTaskServices, StartedTask } from "./tasks.js"
 
 export interface ToolCall {
   id: string
   name: string
   args: unknown
+}
+
+export function readToolCall(value: unknown): ToolCall | undefined {
+  if (!isRecord(value)) return undefined
+  if (typeof value.id !== "string") return undefined
+  if (typeof value.name !== "string") return undefined
+  return { id: value.id, name: value.name, args: value.args }
+}
+
+export function readToolCalls(value: unknown): ToolCall[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((item) => {
+    const call = readToolCall(item)
+    return call === undefined ? [] : [call]
+  })
 }
 
 export interface ToolContext {

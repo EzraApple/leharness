@@ -13,6 +13,7 @@ import {
   type JsonRpcRequest,
   type McpToolSpec,
   parseCallToolResult,
+  parseInitializeResult,
   parseListToolsResult,
 } from "./protocol.js"
 import type { IncomingMessage, Transport } from "./transport/types.js"
@@ -52,10 +53,12 @@ export class McpClient {
   // initialize request succeeds.
   async initialize(): Promise<InitializeResult> {
     await this.transport.start()
-    const result = (await this.request(
-      "initialize",
-      buildInitializeParams(this.options.clientName, this.options.clientVersion),
-    )) as InitializeResult
+    const result = parseInitializeResult(
+      await this.request(
+        "initialize",
+        buildInitializeParams(this.options.clientName, this.options.clientVersion),
+      ),
+    )
     this.serverInfo = result?.serverInfo
     await this.transport.send({
       jsonrpc: "2.0",
@@ -74,7 +77,7 @@ export class McpClient {
     return parseCallToolResult(result)
   }
 
-  async close(): Promise<void> {
+  async close() {
     await this.transport.close()
     this.rejectAllPending("client closed")
   }
@@ -113,7 +116,7 @@ export class McpClient {
     })
   }
 
-  private handleMessage(msg: IncomingMessage): void {
+  private handleMessage(msg: IncomingMessage) {
     if (!("id" in msg)) return
     // A JSON-RPC error can carry id=null (e.g. parse errors not tied to a
     // request); we can't correlate those to a pending call.
@@ -128,11 +131,11 @@ export class McpClient {
     }
   }
 
-  private handleClose(reason: string): void {
+  private handleClose(reason: string) {
     this.rejectAllPending(reason)
   }
 
-  private rejectAllPending(reason: string): void {
+  private rejectAllPending(reason: string) {
     for (const [, pending] of this.pending) {
       pending.reject(new Error(`MCP transport closed: ${reason}`))
     }

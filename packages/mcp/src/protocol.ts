@@ -6,6 +6,14 @@
 
 // Advertised to the server on initialize; we accept whatever version it
 // echoes back (MCP tolerates minor skew).
+import {
+  isRecord,
+  readArrayField,
+  readBooleanField,
+  readRecordField,
+  readStringField,
+} from "./readers.js"
+
 const MCP_PROTOCOL_VERSION = "2025-06-18"
 
 export interface JsonRpcRequest {
@@ -42,7 +50,7 @@ export function isJsonRpcError(msg: JsonRpcResponse): msg is JsonRpcError {
 // The inbound shapes a tools-only client handles: a response to one of our
 // requests, or a server notification. Server→client requests are ignored.
 export function isIncomingMessage(msg: unknown): msg is JsonRpcResponse | JsonRpcNotification {
-  if (typeof msg !== "object" || msg === null) return false
+  if (!isRecord(msg)) return false
   if ("id" in msg) return "result" in msg || "error" in msg
   return "method" in msg
 }
@@ -51,6 +59,23 @@ export interface InitializeResult {
   protocolVersion: string
   capabilities: Record<string, unknown>
   serverInfo?: { name?: string; version?: string }
+}
+
+export function parseInitializeResult(result: unknown): InitializeResult {
+  const protocolVersion = readStringField(result, "protocolVersion") ?? ""
+  const rawServerInfo = readRecordField(result, "serverInfo")
+  const serverInfo =
+    rawServerInfo === undefined
+      ? undefined
+      : {
+          name: readStringField(rawServerInfo, "name"),
+          version: readStringField(rawServerInfo, "version"),
+        }
+  return {
+    protocolVersion,
+    capabilities: readRecordField(result, "capabilities") ?? {},
+    serverInfo,
+  }
 }
 
 export function buildInitializeParams(clientName: string, clientVersion: string): unknown {
@@ -69,21 +94,15 @@ export interface McpToolSpec {
 }
 
 export function parseListToolsResult(result: unknown): McpToolSpec[] {
-  if (typeof result !== "object" || result === null) return []
-  const tools = (result as { tools?: unknown }).tools
-  if (!Array.isArray(tools)) return []
+  const tools = readArrayField(result, "tools")
   const out: McpToolSpec[] = []
   for (const t of tools) {
-    if (typeof t !== "object" || t === null) continue
-    const spec = t as { name?: unknown; description?: unknown; inputSchema?: unknown }
-    if (typeof spec.name !== "string") continue
+    if (!isRecord(t)) continue
+    if (typeof t.name !== "string") continue
     out.push({
-      name: spec.name,
-      description: typeof spec.description === "string" ? spec.description : undefined,
-      inputSchema:
-        typeof spec.inputSchema === "object" && spec.inputSchema !== null
-          ? (spec.inputSchema as Record<string, unknown>)
-          : undefined,
+      name: t.name,
+      description: readStringField(t, "description"),
+      inputSchema: readRecordField(t, "inputSchema"),
     })
   }
   return out
@@ -97,20 +116,21 @@ export interface CallToolResult {
 // Tool results are an array of content blocks; flatten the text blocks and
 // replace any non-text block with a type marker.
 export function parseCallToolResult(result: unknown): CallToolResult {
-  if (typeof result !== "object" || result === null) {
+  if (!isRecord(result)) {
     return { text: "", isError: false }
   }
-  const r = result as { content?: unknown; isError?: unknown }
-  const isError = r.isError === true
-  if (!Array.isArray(r.content)) return { text: "", isError }
+  const isError = readBooleanField(result, "isError") === true
+  const content = readArrayField(result, "content")
+  if (content.length === 0) return { text: "", isError }
   const parts: string[] = []
-  for (const block of r.content) {
-    if (typeof block !== "object" || block === null) continue
-    const b = block as { type?: unknown; text?: unknown }
-    if (b.type === "text" && typeof b.text === "string") {
-      parts.push(b.text)
-    } else if (typeof b.type === "string") {
-      parts.push(`[${b.type} content omitted]`)
+  for (const block of content) {
+    if (!isRecord(block)) continue
+    const type = readStringField(block, "type")
+    const text = readStringField(block, "text")
+    if (type === "text" && text !== undefined) {
+      parts.push(text)
+    } else if (type !== undefined) {
+      parts.push(`[${type} content omitted]`)
     }
   }
   return { text: parts.join("\n"), isError }

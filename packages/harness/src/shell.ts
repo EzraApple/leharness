@@ -95,7 +95,7 @@ export function createShellExecutor(deps: {
     kind: "shell",
 
     adopt(child, task, prebuffer) {
-      const command = (task.payload as { kind: "shell"; command: string }).command
+      const command = task.payload.kind === "shell" ? task.payload.command : ""
       const record: ShellTaskRecord = { task, child, buffer: prebuffer, command }
       records.set(task.id, record)
 
@@ -121,7 +121,7 @@ export function createShellExecutor(deps: {
       }
     },
 
-    async cancel(taskId: string): Promise<void> {
+    async cancel(taskId: string) {
       const record = records.get(taskId)
       if (record === undefined) return
       try {
@@ -155,7 +155,7 @@ export function createShellExecutor(deps: {
 
 export function enableShellRuntime(services: SessionTaskServices): ShellExecutor {
   const existing = services.executors.get("shell")
-  if (existing !== undefined) return existing as ShellExecutor
+  if (isShellExecutor(existing)) return existing
   const executor = createShellExecutor({ queue: services.queue, registry: services.registry })
   registerTaskExecutor(services, executor)
   return executor
@@ -171,8 +171,8 @@ export async function runShellInBackground(
   ctx: ToolContext,
 ): Promise<ToolExecuteResult> {
   const services = ctx.taskServices
-  const executor = services?.executors.get("shell") as ShellExecutor | undefined
-  if (services === undefined || executor === undefined) {
+  const executor = services?.executors.get("shell")
+  if (services === undefined || !isShellExecutor(executor)) {
     return {
       kind: "error",
       message: "shell runtime not enabled (call enableShellRuntime on session services first)",
@@ -210,6 +210,10 @@ export async function runShellInBackground(
   services.registry.register(task, executor)
   executor.adopt(child, task, buffer)
   return { kind: "started", task, summary: `started · ${task.id}` }
+}
+
+function isShellExecutor(executor: TaskExecutor | undefined): executor is ShellExecutor {
+  return executor?.kind === "shell" && "adopt" in executor && typeof executor.adopt === "function"
 }
 
 interface InlineCompletion {
