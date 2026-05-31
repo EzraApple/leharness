@@ -2,13 +2,6 @@
 
 This repo is a TypeScript ESM monorepo for experimenting with local AI harnesses, terminal UX, MCP wiring, subagents, skills, and compaction. Prefer small changes that preserve the public harness API and keep the runnable demos honest.
 
-## Skill Locations
-
-- Use `.agents/skills` for repo guidance consumed by Codex and other compatible agents.
-- Keep `.claude/skills` as symlinks to `.agents/skills` for Claude compatibility.
-- Use `.leharness/skills` only for product or dogfood fixtures that the harness itself should discover at runtime.
-- Do not add `.codex/skills` unless a current Codex compatibility issue requires it.
-
 ## Development Workflow
 
 - Start with `rg` and focused file reads before editing.

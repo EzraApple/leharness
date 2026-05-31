@@ -24,8 +24,7 @@ Use this doc for the normal repo working loop: inspect, understand ownership, ed
 | MCP protocol, config, stdio/http transport, auth, manager lifecycle | `packages/mcp` |
 | CLI entrypoint, built-in tools, smoke scripts, local runtime setup | `apps/cli` |
 | Ink UI, transcript reducer, prompt input, slash commands, pickers | `apps/tui` |
-| Repo developer-agent guidance | `.agents/skills` plus `.claude/skills` symlinks |
-| Runtime skill discovery fixtures | `.leharness/skills` |
+| Agent guidance or runtime skill placement | `writing-skills` |
 
 ## Guardrails
 

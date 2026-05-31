@@ -21,6 +21,8 @@ Before editing, answer these from the current conversation and repo context. Ask
 
 Do placement before writing content.
 
+This section is the source of truth for skill-location decisions. Keep the location matrix here instead of duplicating it in `AGENTS.md` or broad workflow docs; harnesses that support skills should load skill instructions directly.
+
 - **Existing `.agents/skills/<root>/...`:** Prefer this for repo-level guidance that fits an existing area. A root skill plus nested docs reduces top-level prompt clutter while preserving detailed guidance.
 - **New top-level `.agents/skills/<skill>/SKILL.md`:** Use only when the guidance needs its own discovery surface and does not naturally fit an existing root skill.
 - **`.claude/skills/<skill>` symlink:** Mirror every repo developer skill here with a symlink to `../../.agents/skills/<skill>`. Do not edit symlink targets as source files.
@@ -215,6 +217,7 @@ If discovery is shaky, improve the description before editing the body.
 ## Checklist
 
 - [ ] Correct location: `.agents/skills`, `.leharness/skills`, `AGENTS.md`, or automation.
+- [ ] Skill-location policy stays in `writing-skills`, not duplicated in `AGENTS.md` or broad workflow docs.
 - [ ] New top-level skill is justified; otherwise content is nested under the best existing root.
 - [ ] Name is lowercase hyphen-separated and matches the directory.
 - [ ] Frontmatter has `name` and `description`.

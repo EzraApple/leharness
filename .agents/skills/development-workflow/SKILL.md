@@ -21,7 +21,6 @@ Use this skill for repo-operation work: planning a change, keeping the branch cl
 
 ## Boundaries
 
-- Use `.agents/skills` for repo developer-agent guidance and mirror it through `.claude/skills` symlinks.
-- Use `.leharness/skills` only for runtime behavior the harness product should discover.
+- For skill-placement decisions, use `writing-skills` as the source of truth.
 - Use `harness-architecture` for event, provider, tool, task, MCP, compaction, CLI, and TUI ownership decisions.
 - Use `review` when the task is evaluating a PR rather than changing it.
