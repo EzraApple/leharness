@@ -2,6 +2,8 @@
 
 Architecture review asks whether the chosen shape is the simplest maintainable one for this repo. The goal is not to invent a different design; it is to surface unacknowledged complexity and boundary drift.
 
+**REQUIRED BACKGROUND:** Read `.agents/skills/harness-architecture/SKILL.md` before reviewing architecture for this repo. Use it as the source of truth for package ownership, core invariants, and runtime boundaries.
+
 ## What to Look For
 
 - A new abstraction, file, or path where a small extension of the existing owner would work.
@@ -22,10 +24,11 @@ Architecture review asks whether the chosen shape is the simplest maintainable o
 
 ## Process
 
-1. Read the PR description before the diff. Note whether it explains the chosen approach and verification.
-2. Read the changed files and identify new ownership boundaries.
-3. For each meaningful boundary, ask: what existing path could have owned this, and did the PR rule that out?
-4. Raise at most three architecture findings. If none are concrete, say there are no architecture findings.
+1. Read `.agents/skills/harness-architecture/SKILL.md`.
+2. Read the PR description before the diff. Note whether it explains the chosen approach and verification.
+3. Read the changed files and identify new ownership boundaries.
+4. For each meaningful boundary, ask: what existing path could have owned this, and did the PR rule that out?
+5. Raise at most three architecture findings. If none are concrete, say there are no architecture findings.
 
 ## Output
 

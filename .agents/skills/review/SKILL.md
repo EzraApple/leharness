@@ -11,7 +11,7 @@ Entry point for review work. Route to the smallest review mode that matches the 
 
 - **Full PR review:** If the user asks to review a PR, run code review, architecture review, and skill/config drift review.
 - **Code review only:** If the user asks for bugs, regressions, standards, tests, or changed-code review, follow `.agents/skills/review/code-review.md`.
-- **Architecture review only:** If the user asks for architecture, maintainability, simplicity, alternatives-considered, ownership, or boundary review, follow `.agents/skills/review/architecture-review.md`.
+- **Architecture review only:** If the user asks for architecture, maintainability, simplicity, alternatives-considered, ownership, or boundary review, follow `.agents/skills/review/architecture-review.md`; it uses `harness-architecture` as required background.
 - **Skill/config drift review only:** If the user explicitly asks whether skills, `AGENTS.md`, `.claude/skills`, or agent guidance is stale, follow `.agents/skills/review/skill-review.md`.
 
 Do not run skill/config drift review for ordinary code-only requests. It is part of full PR review because code changes can make agent guidance stale.
