@@ -15,7 +15,7 @@ import {
 } from "@leharness/harness"
 import type { McpServerDetail } from "@leharness/mcp"
 import { Box, Text, useApp, useInput, useStdout } from "ink"
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { commandMenuItems, findCommand, helpEntries } from "./commands/registry.js"
 import type { CommandContext, McpCommandControls } from "./commands/types.js"
 import { ActiveTasks } from "./components/active-tasks.js"
@@ -89,7 +89,6 @@ export function TuiApp({
     for (const event of priorEvents) state = reduceEvent(state, event)
     return state
   })
-  const clearInputRef = useRef(false)
   const allModels = useMemo(
     () => allModelChoices(selectedProvider.name, selectedModel),
     [selectedProvider.name, selectedModel],
@@ -231,6 +230,7 @@ export function TuiApp({
 
   function clearComposer() {
     setInput("")
+    setInputVersion((version) => version + 1)
     setSlashDismissedInput(undefined)
     setHistoryIndex(undefined)
   }
@@ -365,11 +365,8 @@ export function TuiApp({
         return
       }
       if (key.ctrl && rawInput === "u") {
-        clearInputRef.current = true
-        setInput("")
-        setSlashDismissedInput(undefined)
+        clearComposer()
         setSlashSelectedIndex(0)
-        setHistoryIndex(undefined)
         return
       }
       // Toggle the most recent tool's detail: collapse one if open, otherwise
@@ -603,11 +600,6 @@ export function TuiApp({
   }
 
   const changeInput = (value: string) => {
-    if (clearInputRef.current) {
-      clearInputRef.current = false
-      setInput("")
-      return
-    }
     if (value.length > 0) setHelpVisible(false)
     setInput(value)
     if (picker !== undefined) {

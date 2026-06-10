@@ -12,6 +12,10 @@ function expectUpdate(action: TextKeyAction): { value: string; cursorOffset: num
   return action
 }
 
+function expectIgnore(action: TextKeyAction) {
+  assert.equal(action.kind, "ignore")
+}
+
 // Typing a character inserts it at the cursor.
 let u = expectUpdate(reduceTextKey("", 0, "a", {}, true))
 assert.equal(u.value, "a")
@@ -21,6 +25,20 @@ assert.equal(u.cursorOffset, 1)
 u = expectUpdate(reduceTextKey("ac", 1, "b", {}, true))
 assert.equal(u.value, "abc")
 assert.equal(u.cursorOffset, 2)
+
+// Burst-style typing applies each key to the latest prompt snapshot.
+let burst = { value: "", cursorOffset: 0 }
+for (const rawInput of ["f", "a", "s", "t"]) {
+  burst = expectUpdate(reduceTextKey(burst.value, burst.cursorOffset, rawInput, {}, true))
+}
+assert.equal(burst.value, "fast")
+assert.equal(burst.cursorOffset, 4)
+
+// App-level control chords are not text input.
+expectIgnore(reduceTextKey("abc", 3, "u", { ctrl: true }, true))
+expectIgnore(reduceTextKey("abc", 3, "r", { ctrl: true }, true))
+u = expectUpdate(reduceTextKey("", 0, "a", {}, true))
+assert.equal(u.value, "a", "typing after a control chord should keep the first character")
 
 // A lone Enter submits.
 assert.equal(reduceTextKey("hello", 5, "", { return: true }, true).kind, "submit")
