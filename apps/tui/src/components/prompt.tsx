@@ -1,6 +1,6 @@
 import { Box, Text, useInput } from "ink"
 import type { ReactNode } from "react"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { color, glyph } from "../theme.js"
 
 export function Prompt({
@@ -31,16 +31,22 @@ export function Prompt({
         onSubmit={submit}
         placeholder={placeholder ?? (running ? "Queue next message..." : "Ask leharness...")}
         showCursor
+        initialValue={input}
         slashNames={slashNames}
-        value={input}
       />
     </Box>
   )
 }
 
 export type TextKeyAction =
+  | { kind: "ignore" }
   | { kind: "submit" }
   | { kind: "update"; value: string; cursorOffset: number }
+
+interface TextInputSnapshot {
+  cursorOffset: number
+  value: string
+}
 
 // How a text-editing keypress changes the prompt buffer. Pure, so the
 // paste / shift+enter / submit rules can be tested without rendering Ink.
@@ -59,9 +65,12 @@ export function reduceTextKey(
     rightArrow?: boolean
     backspace?: boolean
     delete?: boolean
+    ctrl?: boolean
   },
   showCursor: boolean,
 ): TextKeyAction {
+  if (key.ctrl && !key.return) return { kind: "ignore" }
+
   // Normalize CRLF/CR so pasted line endings become "\n" in the buffer.
   const text = rawInput.replace(/\r\n?/g, "\n")
 
@@ -108,23 +117,32 @@ export function reduceTextKey(
 
 function StyledTextInput({
   focus,
+  initialValue,
   onChange,
   onSubmit,
   placeholder,
   showCursor,
   slashNames,
-  value,
 }: {
   focus: boolean
+  initialValue: string
   onChange: (value: string) => void
   onSubmit: (value: string) => void
   placeholder: string
   showCursor: boolean
   slashNames: Set<string>
-  value: string
 }) {
-  const [cursorOffset, setCursorOffset] = useState(value.length)
-  const mentionRanges = useMemo(() => findMentionRanges(value, slashNames), [slashNames, value])
+  const [, setEditorVersion] = useState(0)
+  const editorRef = useRef<TextInputSnapshot>({
+    cursorOffset: initialValue.length,
+    value: initialValue,
+  })
+
+  const editor = editorRef.current
+  const mentionRanges = useMemo(
+    () => findMentionRanges(editor.value, slashNames),
+    [slashNames, editor.value],
+  )
 
   useInput(
     (rawInput, key) => {
@@ -140,18 +158,21 @@ function StyledTextInput({
         return
       }
 
-      const action = reduceTextKey(value, cursorOffset, rawInput, key, showCursor)
+      const current = editorRef.current
+      const action = reduceTextKey(current.value, current.cursorOffset, rawInput, key, showCursor)
+      if (action.kind === "ignore") return
       if (action.kind === "submit") {
-        onSubmit(value)
+        onSubmit(current.value)
         return
       }
-      setCursorOffset(action.cursorOffset)
-      if (action.value !== value) onChange(action.value)
+      editorRef.current = { cursorOffset: action.cursorOffset, value: action.value }
+      setEditorVersion((version) => version + 1)
+      if (action.value !== current.value) onChange(action.value)
     },
     { isActive: focus },
   )
 
-  if (value.length === 0) {
+  if (editor.value.length === 0) {
     if (!showCursor) return <Text color="gray">{placeholder}</Text>
     return (
       <Text>
@@ -163,8 +184,8 @@ function StyledTextInput({
 
   return (
     <Text>
-      {renderValueChars(value, cursorOffset, showCursor, mentionRanges)}
-      {showCursor && cursorOffset === value.length ? <Text inverse> </Text> : null}
+      {renderValueChars(editor.value, editor.cursorOffset, showCursor, mentionRanges)}
+      {showCursor && editor.cursorOffset === editor.value.length ? <Text inverse> </Text> : null}
     </Text>
   )
 }
